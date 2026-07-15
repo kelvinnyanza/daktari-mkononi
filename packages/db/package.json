@@ -14,21 +14,20 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src prisma --max-warnings 0",
+    "lint": "eslint src prisma prisma.config.ts --max-warnings 0",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
-  },
   "dependencies": {
+    "@daktari/encryption": "workspace:*",
     "@prisma/client": "^6.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "dotenv": "^16.4.0",
     "prisma": "^6.5.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"

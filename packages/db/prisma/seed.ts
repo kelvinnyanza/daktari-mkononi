@@ -2,19 +2,16 @@
  * Seed realistic Tanzanian test data. Idempotent: safe to run repeatedly.
  * Run with: pnpm --filter @daktari/db db:seed
  */
-import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import { hashPassword } from '@daktari/encryption';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-/** Dev-only credential hashing; production uses argon2 in the auth service. */
-function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString('hex');
-  const hash = scryptSync(password, salt, 64).toString('hex');
-  return `scrypt:${salt}:${hash}`;
-}
-
 const SEED_PASSWORD = 'Daktari123!';
+
+// argon2id is intentionally slow; hash once and reuse for every seeded user.
+const seedPasswordHash: Promise<string> = hashPassword(SEED_PASSWORD);
 
 async function seedHospitals() {
   const muhimbili = await prisma.hospital.upsert({
@@ -128,7 +125,7 @@ async function seedDoctors(hospitalIds: { muhimbili: string; bugando: string }) 
       update: {},
       create: {
         phone: seed.phone,
-        passwordHash: hashPassword(SEED_PASSWORD),
+        passwordHash: await seedPasswordHash,
         fullName: seed.fullName,
         role: 'DOCTOR',
         language: 'SW',
@@ -215,7 +212,7 @@ async function seedPatients() {
       update: {},
       create: {
         phone: seed.phone,
-        passwordHash: hashPassword(SEED_PASSWORD),
+        passwordHash: await seedPasswordHash,
         fullName: seed.fullName,
         role: 'PATIENT',
         language: 'SW',
@@ -349,7 +346,7 @@ async function main() {
     create: {
       phone: '+255713000000',
       email: 'admin@daktarimkononi.co.tz',
-      passwordHash: hashPassword(SEED_PASSWORD),
+      passwordHash: await seedPasswordHash,
       fullName: 'Asha Mkapa',
       role: 'PLATFORM_ADMIN',
       language: 'SW',

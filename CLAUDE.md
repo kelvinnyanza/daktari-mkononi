@@ -12,6 +12,25 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
 - **PHI handling:** all protected health information is encrypted at rest
   (AES-256-GCM, key from `ENCRYPTION_KEY` env — 32 bytes hex). Every access to
   PHI must be written to `AuditLog`.
+- **Encryption payload format v1** (`@daktari/encryption`): JSON
+  `{ "v": 1, "iv": <hex>, "tag": <hex>, "ct": <hex> }` — random 12-byte IV per
+  encryption, 16-byte GCM tag verified on decrypt (`TamperedDataError` on any
+  auth failure, never partial plaintext). The `v` field enables key/algorithm
+  rotation without rewriting stored rows. Use `encryptHealthData` /
+  `decryptHealthData` for PHI; core `encryptAesGcm`/`decryptAesGcm` take an
+  explicit key Buffer.
+- **Passwords:** argon2id (memoryCost 65536, timeCost 3, parallelism 4) via
+  `@daktari/encryption` `hashPassword`/`verifyPassword`. `hash.ts` is env-free
+  by design — the db seed imports it standalone.
+- **OTP policy:** 6 digits, crypto-uniform (rejection sampling), zero-padded;
+  stored as SHA-256 hash, verified timing-safe. 5-minute expiry, max 5
+  attempts per code (enforcement lands in the Phase 3 auth service).
+- **Refresh token rotation:** HS512 JWTs. Every login starts a token family
+  (`newTokenFamily`); each refresh rotates the family's active token. A replay
+  of an already-rotated token (`evaluateRefreshAttempt` → `REVOKE_FAMILY`,
+  `REUSE_DETECTED`) must revoke the entire family + session. Verify always
+  pins `{ algorithms: ["HS512"] }` and Zod-validates payload shape; token
+  errors are typed EXPIRED / INVALID / MALFORMED.
 - **Emergency numbers:** guidance strings use **112** (universal emergency) and
   **115** (ambulance). Never 999, 911, or 114.
 - **Payments:** Tanzania mobile money via an aggregator (AzamPay-style API).
@@ -52,3 +71,5 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
 - `pnpm build` / `pnpm typecheck` / `pnpm lint` / `pnpm test` — turbo pipelines
 - `pnpm --filter @daktari/db db:generate` — regenerate Prisma client
 - `pnpm --filter @daktari/db db:seed` — seed realistic Tanzanian test data
+- Prisma CLI config lives in `packages/db/prisma.config.ts` (not
+  `package.json#prisma`); it loads `.env` via dotenv explicitly.
