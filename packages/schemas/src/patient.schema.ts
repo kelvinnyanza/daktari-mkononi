@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { dateOnlySchema, tzPhoneSchema } from './common.js';
+import { dateOnlySchema, paginationSchema, tzPhoneSchema } from './common.js';
 
 export const genderSchema = z.enum(['MALE', 'FEMALE']);
 export type Gender = z.infer<typeof genderSchema>;
@@ -7,18 +7,41 @@ export type Gender = z.infer<typeof genderSchema>;
 export const bloodTypeSchema = z.enum(['A_POS', 'A_NEG', 'B_POS', 'B_NEG', 'AB_POS', 'AB_NEG', 'O_POS', 'O_NEG']);
 export type BloodType = z.infer<typeof bloodTypeSchema>;
 
-/** Tanzania mainland + Zanzibar regions used at launch; free-text kept out on purpose. */
+/** All 31 administrative regions of Tanzania (26 mainland + 5 Zanzibar). */
 export const tzRegionSchema = z.enum([
-  'DAR_ES_SALAAM',
-  'MWANZA',
+  // Mainland
   'ARUSHA',
+  'DAR_ES_SALAAM',
   'DODOMA',
+  'GEITA',
+  'IRINGA',
+  'KAGERA',
+  'KATAVI',
+  'KIGOMA',
+  'KILIMANJARO',
+  'LINDI',
+  'MANYARA',
+  'MARA',
   'MBEYA',
   'MOROGORO',
+  'MTWARA',
+  'MWANZA',
+  'NJOMBE',
+  'PWANI',
+  'RUKWA',
+  'RUVUMA',
+  'SHINYANGA',
+  'SIMIYU',
+  'SINGIDA',
+  'SONGWE',
+  'TABORA',
   'TANGA',
-  'KILIMANJARO',
-  'ZANZIBAR_MJINI_MAGHARIBI',
-  'OTHER',
+  // Zanzibar
+  'KASKAZINI_PEMBA',
+  'KASKAZINI_UNGUJA',
+  'KUSINI_PEMBA',
+  'KUSINI_UNGUJA',
+  'MJINI_MAGHARIBI',
 ]);
 export type TzRegion = z.infer<typeof tzRegionSchema>;
 
@@ -51,5 +74,35 @@ export const createPatientProfileSchema = z.object({
 });
 export type CreatePatientProfileInput = z.infer<typeof createPatientProfileSchema>;
 
-export const updatePatientProfileSchema = createPatientProfileSchema.partial();
+/**
+ * Patient-editable profile fields — PATCH /api/v1/patients/me/profile.
+ * `.strict()` so attempts to set platform-owned fields (patientNumber,
+ * nhifVerifiedAt, userId, …) are rejected with 400 instead of silently ignored.
+ */
+export const updatePatientProfileSchema = z
+  .object({
+    region: tzRegionSchema,
+    district: z.string().trim().min(2).max(100),
+    ward: z.string().trim().min(2).max(100),
+    street: z.string().trim().min(2).max(150),
+    address: z.string().trim().max(300),
+    emergencyContact: emergencyContactSchema,
+    heightCm: z.number().min(30).max(250),
+    weightKg: z.number().min(1).max(500),
+    bloodType: bloodTypeSchema,
+    allergies: z.array(z.string().trim().min(1).max(200)).max(50),
+    chronicConditions: z.array(z.string().trim().min(1).max(200)).max(50),
+    currentMedications: z.array(z.string().trim().min(1).max(200)).max(50),
+    nhifCardNumber: z.string().regex(/^\d{8,12}$/, 'NHIF card number is 8–12 digits'),
+    language: z.enum(['sw', 'en']),
+  })
+  .partial()
+  .strict();
 export type UpdatePatientProfileInput = z.infer<typeof updatePatientProfileSchema>;
+
+/** Admin list — GET /api/v1/patients */
+export const listPatientsQuerySchema = paginationSchema.extend({
+  region: tzRegionSchema.optional(),
+  district: z.string().trim().min(2).max(100).optional(),
+});
+export type ListPatientsQuery = z.infer<typeof listPatientsQuerySchema>;

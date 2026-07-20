@@ -5,6 +5,8 @@ node_modules/
 dist/
 .turbo/
 *.tsbuildinfo
+.next/
+next-env.d.ts
 
 # env — never commit secrets
 .env
@@ -13,6 +15,9 @@ dist/
 
 # test coverage
 coverage/
+
+# local dev file storage (@daktari/storage LocalDiskStorage)
+.storage/
 
 # logs
 *.log

@@ -2,7 +2,7 @@
  * Env-free hashing primitives. This module must never read environment
  * variables — packages/db's seed imports it standalone.
  */
-import crypto, { createHash, randomBytes } from 'node:crypto';
+import crypto, { createHmac, randomBytes } from 'node:crypto';
 import argon2 from 'argon2';
 
 /** OWASP-aligned argon2id parameters: 64 MiB memory, 3 iterations, 4 lanes. */
@@ -57,18 +57,38 @@ export function generateOtp(): string {
   return String(value % range).padStart(6, '0');
 }
 
-/**
- * Hash an OTP for storage. SHA-256 (not argon2) is deliberate: OTPs are
- * 6 digits, expire in minutes, and are rate-limited to 5 attempts, so a slow
- * hash buys nothing and would throttle the auth service.
- */
-export function hashOtp(code: string): string {
-  return createHash('sha256').update(code, 'utf8').digest('hex');
+/** Keying material for OTP hashing. */
+export interface OtpHashParams {
+  /**
+   * Server-side secret (env OTP_PEPPER, never stored with the data).
+   * A 6-digit OTP has only 10^6 possibilities — a leaked table of plain
+   * SHA-256 hashes is brute-forced instantly. HMAC with a pepper means a
+   * table leak alone reveals nothing.
+   */
+  pepper: string;
+  /**
+   * Binds the hash to its owner and purpose, e.g. `${userId}:PHONE_VERIFY`.
+   * The same code issued to two users (or two purposes) hashes differently,
+   * so hashes cannot be correlated or replayed across rows.
+   */
+  context: string;
 }
 
-/** Verify an OTP against its stored SHA-256 hash using a timing-safe comparison. */
-export function verifyOtp(code: string, hash: string): boolean {
-  const computed = Buffer.from(hashOtp(code), 'hex');
+/**
+ * Hash an OTP for storage: HMAC-SHA-256(pepper, context:code).
+ * A fast hash (not argon2) is deliberate — OTPs expire in minutes and are
+ * capped at 5 attempts, so slow hashing buys nothing; the pepper + context
+ * binding is what protects a leaked table.
+ */
+export function hashOtp(code: string, params: OtpHashParams): string {
+  return createHmac('sha256', params.pepper)
+    .update(`${params.context}:${code}`, 'utf8')
+    .digest('hex');
+}
+
+/** Verify an OTP against its stored HMAC using a timing-safe comparison. */
+export function verifyOtp(code: string, hash: string, params: OtpHashParams): boolean {
+  const computed = Buffer.from(hashOtp(code, params), 'hex');
   let stored: Buffer;
   try {
     stored = Buffer.from(hash, 'hex');

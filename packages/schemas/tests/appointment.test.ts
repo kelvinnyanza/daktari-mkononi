@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { bookAppointmentSchema } from '../src/appointment.schema.js';
 
 const doctorId = 'clx1q2w3e4r5t6y7u8i9o0p1';
@@ -11,6 +11,7 @@ describe('bookAppointmentSchema', () => {
       type: 'VIDEO',
       scheduledAt: tomorrow(),
       reason: 'Homa ya siku tatu',
+      paymentIntent: 'MOBILE_MONEY',
     });
     expect(parsed.scheduledAt).toBeInstanceOf(Date);
     expect(parsed.type).toBe('VIDEO');
@@ -24,6 +25,7 @@ describe('bookAppointmentSchema', () => {
         type: 'VIDEO',
         scheduledAt: yesterday,
         reason: 'Homa',
+        paymentIntent: 'MOBILE_MONEY',
       }),
     ).toThrowError(/future/);
   });
@@ -36,6 +38,7 @@ describe('bookAppointmentSchema', () => {
         type: 'CHAT',
         scheduledAt: nextYear,
         reason: 'Ukaguzi wa afya',
+        paymentIntent: 'NHIF',
       }),
     ).toThrowError(/90 days/);
   });
@@ -47,6 +50,7 @@ describe('bookAppointmentSchema', () => {
         type: 'HOME_VISIT',
         scheduledAt: tomorrow(),
         reason: 'Homa',
+        paymentIntent: 'MOBILE_MONEY',
       }),
     ).toThrow();
     expect(() =>
@@ -55,6 +59,7 @@ describe('bookAppointmentSchema', () => {
         type: 'VIDEO',
         scheduledAt: tomorrow(),
         reason: 'Homa',
+        paymentIntent: 'MOBILE_MONEY',
       }),
     ).toThrow();
   });

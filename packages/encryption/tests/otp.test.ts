@@ -31,22 +31,40 @@ describe('generateOtp', () => {
 });
 
 describe('hashOtp / verifyOtp', () => {
+  const params = { pepper: 'p'.repeat(32), context: 'user-1:PHONE_VERIFY' };
+
   it('verifies the correct code', () => {
-    const hash = hashOtp('004217');
-    expect(verifyOtp('004217', hash)).toBe(true);
+    const hash = hashOtp('004217', params);
+    expect(verifyOtp('004217', hash, params)).toBe(true);
   });
 
   it('rejects a wrong code and a malformed hash', () => {
-    const hash = hashOtp('004217');
-    expect(verifyOtp('004218', hash)).toBe(false);
-    expect(verifyOtp('004217', 'zz-not-hex')).toBe(false);
-    expect(verifyOtp('004217', 'abcd')).toBe(false); // wrong length
+    const hash = hashOtp('004217', params);
+    expect(verifyOtp('004218', hash, params)).toBe(false);
+    expect(verifyOtp('004217', 'zz-not-hex', params)).toBe(false);
+    expect(verifyOtp('004217', 'abcd', params)).toBe(false); // wrong length
+  });
+
+  it('binds the hash to the pepper — same code, different pepper, different hash', () => {
+    const hash = hashOtp('123456', params);
+    const otherPepper = { ...params, pepper: 'q'.repeat(32) };
+    expect(hashOtp('123456', otherPepper)).not.toBe(hash);
+    expect(verifyOtp('123456', hash, otherPepper)).toBe(false);
+  });
+
+  it('binds the hash to the context — same code for two users hashes differently', () => {
+    const hash = hashOtp('123456', params);
+    const otherUser = { ...params, context: 'user-2:PHONE_VERIFY' };
+    const otherPurpose = { ...params, context: 'user-1:PASSWORD_RESET' };
+    expect(hashOtp('123456', otherUser)).not.toBe(hash);
+    expect(hashOtp('123456', otherPurpose)).not.toBe(hash);
+    expect(verifyOtp('123456', hash, otherUser)).toBe(false);
   });
 
   it('uses a timing-safe comparison under the hood', () => {
     const spy = vi.spyOn(crypto, 'timingSafeEqual');
-    const hash = hashOtp('123456');
-    expect(verifyOtp('123456', hash)).toBe(true);
+    const hash = hashOtp('123456', params);
+    expect(verifyOtp('123456', hash, params)).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });

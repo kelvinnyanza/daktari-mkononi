@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { languageSchema, tzPhoneSchema } from './common.js';
+import { dateOnlySchema, languageSchema, tzPhoneSchema } from './common.js';
+import { genderSchema } from './patient.schema.js';
 
 export const passwordSchema = z
   .string()
@@ -28,12 +29,47 @@ export const loginSchema = z.object({
 export type LoginInput = z.infer<typeof loginSchema>;
 
 export const otpPurposeSchema = z.enum([
-  'REGISTRATION',
+  'PHONE_VERIFY',
   'LOGIN',
   'PASSWORD_RESET',
   'PHONE_CHANGE',
 ]);
 export type OtpPurpose = z.infer<typeof otpPurposeSchema>;
+
+/** Patient self-registration (POST /api/v1/auth/register). */
+export const patientRegistrationSchema = z.object({
+  phone: tzPhoneSchema,
+  password: passwordSchema,
+  fullName: z.string().trim().min(2).max(120),
+  dateOfBirth: dateOnlySchema
+    .refine((date) => date.getTime() < Date.now(), 'date of birth must be in the past')
+    .refine(
+      (date) => date.getTime() > Date.parse('1900-01-01T00:00:00.000Z'),
+      'date of birth is unrealistically old',
+    ),
+  gender: genderSchema,
+  language: languageSchema,
+});
+export type PatientRegistrationInput = z.infer<typeof patientRegistrationSchema>;
+
+export const forgotPasswordSchema = z.object({
+  phone: tzPhoneSchema,
+});
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z.object({
+  phone: tzPhoneSchema,
+  code: z.string().regex(/^\d{6}$/, 'OTP code is 6 digits'),
+  newPassword: passwordSchema,
+});
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+/** POST /api/v1/auth/resend-otp — registration OTP re-send (Phase 9). */
+export const resendOtpSchema = z.object({
+  phoneNumber: tzPhoneSchema,
+  purpose: z.literal('phone_verify'),
+});
+export type ResendOtpInput = z.infer<typeof resendOtpSchema>;
 
 export const requestOtpSchema = z.object({
   phone: tzPhoneSchema,

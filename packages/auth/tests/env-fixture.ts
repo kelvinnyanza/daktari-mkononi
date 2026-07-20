@@ -16,6 +16,8 @@ export function applyTestEnv(): void {
     JWT_ACCESS_EXPIRY: '15m',
     JWT_REFRESH_EXPIRY: '30d',
     ENCRYPTION_KEY: '0f'.repeat(32),
+    OTP_PEPPER: 'pepper-'.padEnd(32, 'x'),
+    FILE_SIGNING_SECRET: 'files-'.padEnd(32, 'y'),
     ANTHROPIC_API_KEY: 'sk-ant-test',
     PAYMENT_API_KEY: 'pay-key',
     PAYMENT_API_SECRET: 'pay-secret',

@@ -10,6 +10,8 @@ const validEnv: Record<string, string> = {
   JWT_ACCESS_SECRET: 'a'.repeat(64),
   JWT_REFRESH_SECRET: 'b'.repeat(64),
   ENCRYPTION_KEY: '0f'.repeat(32),
+  OTP_PEPPER: 'pepper-'.padEnd(32, 'x'),
+  FILE_SIGNING_SECRET: 'files-'.padEnd(32, 'y'),
   ANTHROPIC_API_KEY: 'sk-ant-test',
   PAYMENT_API_KEY: 'pay-key',
   PAYMENT_API_SECRET: 'pay-secret',
@@ -85,5 +87,11 @@ describe('loadEnv', () => {
 
   it('rejects an invalid NODE_ENV', () => {
     expect(() => loadEnv({ ...validEnv, NODE_ENV: 'staging' })).toThrowError(/NODE_ENV/);
+  });
+
+  it('rejects an OTP_PEPPER shorter than 32 characters', () => {
+    expect(() => loadEnv({ ...validEnv, OTP_PEPPER: 'too-short' })).toThrowError(
+      /OTP_PEPPER.*32/,
+    );
   });
 });

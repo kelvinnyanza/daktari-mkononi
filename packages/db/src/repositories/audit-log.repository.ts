@@ -3,7 +3,7 @@ import { prisma } from '../client.js';
 
 /** Append-only — no update or delete methods, by design. */
 export const auditLogRepository = {
-  append(data: Prisma.AuditLogCreateInput): Promise<AuditLog> {
+  append(data: Prisma.AuditLogUncheckedCreateInput): Promise<AuditLog> {
     return prisma.auditLog.create({ data });
   },
 

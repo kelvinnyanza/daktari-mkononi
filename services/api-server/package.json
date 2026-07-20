@@ -1,0 +1,45 @@
+{
+  "name": "@daktari/api-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src tests --max-warnings 0",
+    "test": "vitest run",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@daktari/ai": "workspace:*",
+    "@daktari/auth": "workspace:*",
+    "@daktari/config": "workspace:*",
+    "@daktari/db": "workspace:*",
+    "@daktari/encryption": "workspace:*",
+    "@daktari/notifications": "workspace:*",
+    "@daktari/payments": "workspace:*",
+    "@daktari/schemas": "workspace:*",
+    "@daktari/storage": "workspace:*",
+    "@daktari/video": "workspace:*",
+    "@fastify/compress": "^8.0.0",
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/multipart": "^9.0.0",
+    "@fastify/rate-limit": "^10.1.0",
+    "@fastify/websocket": "^11.0.0",
+    "fastify": "^5.1.0",
+    "ioredis": "^5.4.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0",
+    "ws": "^8.18.0"
+  }
+}

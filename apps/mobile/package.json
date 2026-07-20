@@ -1,0 +1,57 @@
+{
+  "name": "@daktari/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint app src --max-warnings 0",
+    "test": "jest --ci --silent"
+  },
+  "dependencies": {
+    "@daktari/payments": "workspace:*",
+    "@daktari/schemas": "workspace:*",
+    "@daily-co/react-native-daily-js": "^0.72.0",
+    "@daily-co/react-native-webrtc": "^118.0.3-daily.2",
+    "@tanstack/react-query": "^5.62.0",
+    "expo": "~52.0.46",
+    "expo-constants": "~17.0.8",
+    "expo-dev-client": "~5.0.20",
+    "expo-linking": "~7.0.5",
+    "expo-router": "~4.0.20",
+    "expo-secure-store": "~14.0.1",
+    "expo-status-bar": "~2.0.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-native": "0.76.9",
+    "react-native-safe-area-context": "4.12.0",
+    "react-native-screens": "~4.4.0",
+    "zod": "^3.24.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@config-plugins/react-native-webrtc": "^10.0.0",
+    "@types/jest": "^29.5.14",
+    "@types/react": "~18.3.12",
+    "babel-preset-expo": "~12.0.11",
+    "jest": "^29.7.0",
+    "jest-expo": "~52.0.6",
+    "typescript": "^5.8.0"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "roots": [
+      "<rootDir>/src"
+    ],
+    "moduleNameMapper": {
+      "^@daily-co/react-native-daily-js$": "<rootDir>/src/testing/daily-mock.ts",
+      "^@daily-co/react-native-webrtc$": "<rootDir>/src/testing/daily-mock.ts"
+    },
+    "transformIgnorePatterns": [
+      "node_modules/(?!(\\.pnpm/)?((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-.*))"
+    ]
+  }
+}

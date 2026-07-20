@@ -18,3 +18,17 @@ export const prisma: PrismaClient =
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;
 }
+
+/**
+ * Prisma cannot declare partial unique indexes, so slot exclusivity for
+ * bookings is created here: one active appointment per (doctorId, scheduledAt).
+ * Idempotent — call at server startup and in integration test setup, after
+ * `prisma db push` / migrations.
+ */
+export async function ensureBookingSlotIndex(client: PrismaClient = prisma): Promise<void> {
+  await client.$executeRawUnsafe(
+    `CREATE UNIQUE INDEX IF NOT EXISTS "uniq_appointment_active_slot"
+     ON "Appointment" ("doctorId", "scheduledAt")
+     WHERE "status" NOT IN ('CANCELLED', 'NO_SHOW')`,
+  );
+}

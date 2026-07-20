@@ -7,6 +7,7 @@
  *  - INVALID   → bad signature or disallowed algorithm (reject, maybe alert)
  *  - MALFORMED → not a JWT at all, or claims don't match our payload schema
  */
+import { randomUUID } from 'node:crypto';
 import { errors as joseErrors, jwtVerify, SignJWT } from 'jose';
 import { z } from 'zod';
 import { env } from '@daktari/config';
@@ -85,6 +86,9 @@ function sign(
 ): Promise<string> {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: JWT_ALG })
+    // Unique jti per token: two tokens signed in the same second must still
+    // differ, or refresh rotation could not tell a replay from the active token.
+    .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime(expiresIn)
     .sign(secret);

@@ -35,13 +35,30 @@ export const envSchema = z.object({
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, 'must be exactly 64 hex characters (32 bytes)'),
 
+  // Server-side secret for HMAC-SHA-256 OTP hashing (see @daktari/encryption)
+  OTP_PEPPER: z.string().min(32, 'must be at least 32 characters'),
+
+  // HMAC secret for signed file-download tokens (@daktari/storage)
+  FILE_SIGNING_SECRET: z.string().min(32, 'must be at least 32 characters'),
+  // Local dev file storage root (LocalDiskStorage); S3 takes over in production
+  STORAGE_ROOT: z.string().min(1).default('.storage'),
+
   // AI
   ANTHROPIC_API_KEY: z.string().min(1),
+  AI_MODEL: z.string().min(1).default('claude-sonnet-4-6'),
 
   // Payments — Tanzania mobile money aggregator (TZS only)
   PAYMENT_API_KEY: z.string().min(1),
   PAYMENT_API_SECRET: z.string().min(1),
   PAYMENT_CALLBACK_URL: z.string().url(),
+  // AzamPay (all optional — the provider reports NOT_CONFIGURED when missing)
+  AZAMPAY_APP_NAME: z.string().min(1).optional(),
+  AZAMPAY_CLIENT_ID: z.string().min(1).optional(),
+  AZAMPAY_CLIENT_SECRET: z.string().min(1).optional(),
+  AZAMPAY_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
+  AZAMPAY_AUTH_BASE_URL: z.string().url().optional(),
+  AZAMPAY_CHECKOUT_BASE_URL: z.string().url().optional(),
+  AZAMPAY_WEBHOOK_SECRET: z.string().min(16).optional(),
 
   // AWS (document storage)
   AWS_ACCESS_KEY_ID: z.string().min(1),
@@ -50,6 +67,7 @@ export const envSchema = z.object({
 
   // Messaging
   SMS_API_KEY: z.string().min(1),
+  SMS_USERNAME: z.string().min(1).default('sandbox'),
   SMS_SENDER_ID: z.string().min(1).max(11).default('DAKTARI'),
   WHATSAPP_API_KEY: z.string().min(1),
 

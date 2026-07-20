@@ -6,6 +6,7 @@ export {
   hashOtp,
   verifyOtp,
 } from './hash.js';
+export type { OtpHashParams } from './hash.js';
 export {
   encryptAesGcm,
   decryptAesGcm,

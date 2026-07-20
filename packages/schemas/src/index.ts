@@ -5,5 +5,6 @@ export * from './doctor.schema.js';
 export * from './appointment.schema.js';
 export * from './consultation.schema.js';
 export * from './prescription.schema.js';
+export * from './payment.schema.js';
 export * from './vitals.schema.js';
 export * from './screening.schema.js';

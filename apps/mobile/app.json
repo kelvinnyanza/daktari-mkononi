@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Daktari Mkononi",
+    "slug": "daktari-mkononi",
+    "version": "0.1.0",
+    "scheme": "daktari",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "tz.co.daktarimkononi.app",
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.INTERNET"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "tz.co.daktarimkononi.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Kamera inahitajika kwa mashauriano ya video na daktari. / The camera is needed for video consultations with your doctor.",
+        "NSMicrophoneUsageDescription": "Kipaza sauti kinahitajika kwa mashauriano ya sauti na video. / The microphone is needed for audio and video consultations."
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-dev-client",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Kamera inahitajika kwa mashauriano ya video na daktari. / The camera is needed for video consultations with your doctor.",
+          "microphonePermission": "Kipaza sauti kinahitajika kwa mashauriano ya sauti na video. / The microphone is needed for audio and video consultations."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

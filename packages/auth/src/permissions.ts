@@ -15,6 +15,7 @@
  * | doctor:read:any               |   ✓     |   ✓    |      ✓         |                |  doctor:*      |     *       |
  * | doctor:verify                 |         |        |                |                |  doctor:*      |     *       |
  * | appointment:create/read:own…  |   ✓     | :assigned |  :hospital  |                |  appointment:* |     *       |
+ * | appointment:manage:assigned   |         |   ✓    |                |                |  appointment:* |     *       |
  * | consultation:conduct          |         |   ✓    |                |                |  consultation:*|     *       |
  * | prescription:create           |         |   ✓    |                |                |  prescription:*|     *       |
  * | prescription:dispense         |         |        |                |       ✓        |  prescription:*|     *       |
@@ -55,6 +56,9 @@ export const ALL_PERMISSIONS = [
   'appointment:read:assigned',
   'appointment:read:hospital',
   'appointment:cancel:own',
+  // Doctor-side appointment mutations (cancel, check-in, no-show). Reads must
+  // never gate mutations — appointment:read:assigned is read-only.
+  'appointment:manage:assigned',
   'consultation:conduct',
   'consultation:read:own',
   'consultation:read:assigned',
@@ -114,6 +118,7 @@ export const PERMISSIONS: Readonly<Record<Role, readonly Grant[]>> = {
     'hospital:read:any',
     'patient:read:assigned',
     'appointment:read:assigned',
+    'appointment:manage:assigned',
     'consultation:conduct',
     'consultation:read:assigned',
     'prescription:create',

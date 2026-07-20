@@ -2,3 +2,43 @@ packages:
   - "apps/*"
   - "packages/*"
   - "services/*"
+
+# The monorepo runs two React majors on purpose: apps/mobile is React 18
+# (React Native 0.76) and apps/web is React 19 (Next 15).
+#
+# The packages below ship .d.ts files that import `react` but declare no
+# dependency on @types/react, so they used to resolve it through pnpm's single
+# hoisted copy. Once the web portal introduced React 19 types, whichever major
+# landed in that shared slot leaked into the other app — "Stack cannot be used
+# as a JSX component" in mobile, or the mirror-image failure in web.
+#
+# Declaring @types/react a peer makes pnpm install these packages once per
+# React major and resolve each app's copy from the app itself. The peer is
+# deliberately NOT optional: an optional peer is skipped when unsatisfied,
+# which puts us straight back on the hoisted fallback.
+#
+# Note this must be fixed at the dependency graph, not in tsconfig `paths` —
+# jest-expo turns mobile's `paths` into runtime moduleNameMapper entries, so a
+# type-only pin there breaks the mobile test resolver.
+packageExtensions:
+  "@tanstack/react-query":
+    peerDependencies:
+      "@types/react": "*"
+  "@react-navigation/native":
+    peerDependencies:
+      "@types/react": "*"
+  "@react-navigation/core":
+    peerDependencies:
+      "@types/react": "*"
+  "@react-navigation/elements":
+    peerDependencies:
+      "@types/react": "*"
+  "@react-navigation/bottom-tabs":
+    peerDependencies:
+      "@types/react": "*"
+  "@react-navigation/native-stack":
+    peerDependencies:
+      "@types/react": "*"
+  expo-router:
+    peerDependencies:
+      "@types/react": "*"

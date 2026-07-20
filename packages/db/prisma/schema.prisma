@@ -46,7 +46,7 @@ enum BloodType {
 }
 
 enum OtpPurpose {
-  REGISTRATION
+  PHONE_VERIFY
   LOGIN
   PASSWORD_RESET
   PHONE_CHANGE
@@ -56,7 +56,7 @@ enum DoctorVerificationStatus {
   PENDING
   DOCUMENTS_SUBMITTED
   UNDER_REVIEW
-  VERIFIED
+  APPROVED
   REJECTED
   SUSPENDED
 }
@@ -66,8 +66,15 @@ enum DoctorDocumentType {
   MEDICAL_DEGREE
   PRACTICE_LICENSE
   NATIONAL_ID
+  POLICE_CLEARANCE
   PROFILE_PHOTO
   OTHER
+}
+
+enum DocumentReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum TriageLevel {
@@ -75,6 +82,13 @@ enum TriageLevel {
   TELECONSULTATION
   IN_PERSON_VISIT
   EMERGENCY
+}
+
+enum ScreeningSessionStatus {
+  ACTIVE
+  COMPLETED
+  EXPIRED
+  ABANDONED
 }
 
 enum AppointmentType {
@@ -87,16 +101,31 @@ enum AppointmentType {
 enum AppointmentStatus {
   PENDING_PAYMENT
   CONFIRMED
+  CHECKED_IN
   IN_PROGRESS
   COMPLETED
   CANCELLED
   NO_SHOW
 }
 
+// How the patient intends to settle the appointment (Payment rows land in Phase 7).
+enum PaymentIntentType {
+  MOBILE_MONEY
+  NHIF
+  INSURANCE
+  CASH_AT_FACILITY
+}
+
 enum ConsultationStatus {
   IN_PROGRESS
   COMPLETED
   ABANDONED
+}
+
+enum DiagnosisType {
+  PRIMARY
+  SECONDARY
+  DIFFERENTIAL
 }
 
 enum MedicalRecordType {
@@ -187,6 +216,9 @@ model User {
   language        Language  @default(SW)
   isActive        Boolean   @default(true)
   phoneVerifiedAt DateTime?
+  failedLoginCount Int      @default(0)
+  lockedUntil      DateTime?
+  twoFactorEnabled Boolean  @default(false)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime? // soft delete
@@ -208,11 +240,14 @@ model Session {
   userId           String
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokenHash String    @unique
+  tokenFamily      String    @unique // one rotation family per session (reuse detection)
   userAgent        String?
   ipAddress        String?
   expiresAt        DateTime
   revokedAt        DateTime?
+  revokedReason    String?
   createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([userId])
   @@index([expiresAt])
@@ -240,14 +275,22 @@ model Patient {
   id                           String     @id @default(cuid())
   userId                       String     @unique
   user                         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patientNumber                String     @unique @default(cuid()) // platform-assigned, never patient-editable
   dateOfBirth                  DateTime
   gender                       Gender
   bloodType                    BloodType?
   region                       String
   district                     String
+  ward                         String?
+  street                       String?
   address                      String?
+  heightCm                     Float?
+  weightKg                     Float?
   allergies                    String[]   @default([])
+  chronicConditions            String[]   @default([])
+  currentMedications           String[]   @default([])
   nhifCardNumber               String?
+  nhifVerifiedAt               DateTime? // set by admin verification, never patient-editable
   emergencyContactName         String?
   emergencyContactPhone        String?
   emergencyContactRelationship String?
@@ -279,6 +322,7 @@ model PatientInsurance {
   memberNumber String
   validUntil   DateTime?
   isPrimary    Boolean   @default(false)
+  verifiedAt   DateTime? // set once the insurer confirms membership
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -301,11 +345,16 @@ model Doctor {
   verificationStatus    DoctorVerificationStatus @default(PENDING)
   verifiedAt            DateTime?
   verifiedByUserId      String? // PLATFORM_ADMIN who approved
+  claimedByUserId       String? // reviewer who moved it to UNDER_REVIEW
   rejectionReason       String?
+  suspensionReason      String?
+  region                String? // practice location, used by the public directory filters
+  acceptsNhif           Boolean                  @default(false)
   hospitalId            String?
   hospital              Hospital?                @relation(fields: [hospitalId], references: [id], onDelete: SetNull)
   isAvailable           Boolean                  @default(false)
   averageRating         Float                    @default(0)
+  totalRatings          Int                      @default(0)
   totalConsultations    Int                      @default(0)
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @updatedAt
@@ -323,17 +372,21 @@ model Doctor {
 }
 
 model DoctorDocument {
-  id          String             @id @default(cuid())
-  doctorId    String
-  doctor      Doctor             @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  type        DoctorDocumentType
-  fileKey     String // S3 object key
-  fileName    String
-  mimeType    String
-  uploadedAt  DateTime           @default(now())
-  reviewedAt  DateTime?
-  reviewNotes String?
+  id               String               @id @default(cuid())
+  doctorId         String
+  doctor           Doctor               @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  type             DoctorDocumentType
+  fileKey          String // storage object key
+  fileName         String
+  mimeType         String
+  reviewStatus     DocumentReviewStatus @default(PENDING)
+  reviewedByUserId String?
+  uploadedAt       DateTime             @default(now())
+  reviewedAt       DateTime?
+  reviewNotes      String?
 
+  // Re-uploading a document type replaces the previous one (review resets).
+  @@unique([doctorId, type])
   @@index([doctorId])
 }
 
@@ -344,6 +397,7 @@ model DoctorSchedule {
   dayOfWeek           Int // 0 = Sunday … 6 = Saturday
   startTime           String // HH:mm (24h, Africa/Dar_es_Salaam)
   endTime             String // HH:mm
+  breaks              Json     @default("[]") // [{ startTime: HH:mm, endTime: HH:mm }] within the window
   slotDurationMinutes Int      @default(30)
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
@@ -398,15 +452,22 @@ model HospitalAdmin {
 
 // ─── AI screening / triage ───────────────────────────────────────────────────
 
+// Doubles as the screening SESSION row (Phase 6): status/turns/tokens track
+// the conversation; the transcript is PHI and lives in ONE encrypted blob.
 model AIScreeningResult {
   id                    String      @id @default(cuid())
   patientId             String
   patient               Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
   sessionId             String      @unique // uuid of the chat session
   language              Language    @default(SW)
-  symptomsSummary       String
-  conversation          Json? // full message transcript
-  triageLevel           TriageLevel
+  status                ScreeningSessionStatus @default(ACTIVE)
+  turnCount             Int         @default(0) // patient messages processed (cap 12)
+  tokensUsed            Int         @default(0) // cumulative model tokens (budget 8000)
+  lastActivityAt        DateTime    @default(now()) // sessions expire 30 min after this
+  symptomsSummary       String?
+  encryptedConversation String? // AES-256-GCM v1 payload — full transcript, never plaintext
+  triageLevel           TriageLevel?
+  urgencyScore          Int? // 0–10 from the structured triage check
   recommendedSpecialty  String?
   confidence            Float?
   escalatedToEmergency  Boolean     @default(false) // guidance shown: 112 / 115
@@ -416,6 +477,7 @@ model AIScreeningResult {
 
   @@index([patientId, createdAt])
   @@index([triageLevel])
+  @@index([status, lastActivityAt])
 }
 
 // ─── Appointments & consultations ────────────────────────────────────────────
@@ -428,9 +490,16 @@ model Appointment {
   doctor             Doctor             @relation(fields: [doctorId], references: [id], onDelete: Restrict)
   type               AppointmentType
   status             AppointmentStatus  @default(PENDING_PAYMENT)
-  scheduledAt        DateTime
+  scheduledAt        DateTime // UTC; slots are computed in Africa/Dar_es_Salaam (EAT, UTC+3)
   durationMinutes    Int                @default(30)
   reason             String
+  paymentIntent      PaymentIntentType
+  pendingReason      String? // e.g. INSURANCE_UNVERIFIED while stuck in PENDING_PAYMENT
+  expiresAt          DateTime? // unpaid MOBILE_MONEY bookings auto-cancel after this
+  checkInToken       String?            @unique // minted on confirmation for IN_PERSON
+  confirmedAt        DateTime?
+  checkedInAt        DateTime?
+  technicalFailureAt DateTime? // set on the once-only IN_PROGRESS → CONFIRMED restart
   screeningResultId  String?
   screeningResult    AIScreeningResult? @relation(fields: [screeningResultId], references: [id], onDelete: SetNull)
   cancellationReason String?
@@ -441,9 +510,15 @@ model Appointment {
   consultation Consultation?
   payment      Payment?
 
+  // NOTE: slot exclusivity is enforced by a partial unique index
+  //   uniq_appointment_active_slot ON (doctorId, scheduledAt)
+  //   WHERE status NOT IN ('CANCELLED', 'NO_SHOW')
+  // Prisma cannot express partial indexes — packages/db exports
+  // ensureBookingSlotIndex() which creates it; run after `prisma db push`.
   @@index([doctorId, scheduledAt])
   @@index([patientId, scheduledAt])
   @@index([status])
+  @@index([status, expiresAt])
 }
 
 model Consultation {
@@ -457,22 +532,42 @@ model Consultation {
   status             ConsultationStatus @default(IN_PROGRESS)
   startedAt          DateTime           @default(now())
   endedAt            DateTime?
-  chiefComplaint     String?
-  clinicalNotes      String?
+  durationSeconds    Int?
+  endReason          String? // COMPLETED | TECHNICAL_FAILURE:<detail> | …
+  // ALL free-text clinical fields (chief complaint, HPI, examination,
+  // assessment, plan) live in ONE AES-256-GCM blob — never plaintext columns.
+  encryptedNotes     String?
+  videoRoomId        String?
   videoRoomUrl       String?
+  recordingConsentGiven Boolean         @default(false) // set only by the patient, audited
+  recordingConsentAt DateTime?
   followUpRequired   Boolean            @default(false)
   followUpDate       DateTime?
   referredToInPerson Boolean            @default(false)
+  referralNotes      String?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
   diagnoses      Diagnosis[]
   prescriptions  Prescription[]
   medicalRecords MedicalRecord[]
+  messages       ConsultationMessage[]
   rating         ConsultationRating?
 
   @@index([doctorId, startedAt])
   @@index([patientId, startedAt])
+}
+
+// Chat transcript for CHAT consultations. Bodies are PHI → encrypted at rest.
+model ConsultationMessage {
+  id             String       @id @default(cuid())
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  senderUserId   String
+  encryptedBody  String // AES-256-GCM v1 payload (max 2000 chars plaintext)
+  sentAt         DateTime     @default(now())
+
+  @@index([consultationId, sentAt])
 }
 
 model Diagnosis {
@@ -481,7 +576,7 @@ model Diagnosis {
   consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
   icd10Code      String // e.g. B50.9
   description    String
-  isPrimary      Boolean      @default(false)
+  type           DiagnosisType @default(SECONDARY) // max one PRIMARY per consultation
   createdAt      DateTime     @default(now())
 
   @@index([consultationId])
@@ -496,8 +591,11 @@ model ConsultationRating {
   patient        Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
   doctorId       String
   doctor         Doctor       @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  rating         Int // 1–5
-  comment        String?
+  rating         Int // 1–5 overall
+  communication  Int? // optional 1–5 dimensions
+  professionalism Int?
+  timeliness     Int?
+  comment        String? // sanitized upstream
   createdAt      DateTime     @default(now())
 
   @@index([doctorId])
@@ -513,8 +611,13 @@ model MedicalRecord {
   consultation     Consultation?     @relation(fields: [consultationId], references: [id], onDelete: SetNull)
   type             MedicalRecordType
   title            String
-  encryptedContent String // AES-256-GCM: base64(iv):base64(tag):base64(ciphertext)
+  summary          String? // short, deliberately non-sensitive
+  encryptedContent String // AES-256-GCM v1 payload (@daktari/encryption)
   createdByUserId  String
+  // Records are immutable; corrections are NEW records referencing the original.
+  addendumToId     String?
+  addendumTo       MedicalRecord?    @relation("RecordAddenda", fields: [addendumToId], references: [id], onDelete: SetNull)
+  addenda          MedicalRecord[]   @relation("RecordAddenda")
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   deletedAt        DateTime? // soft delete
@@ -639,20 +742,30 @@ model Payment {
   appointment             Appointment?      @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   deliveryId              String?           @unique
   delivery                MedicineDelivery? @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
-  amountTzs               Int
+  amountTzs               Int // whole TZS — see CLAUDE.md money rules
+  platformFeeTzs          Int               @default(0) // splitFee: platform keeps the rounding remainder
+  doctorAmountTzs         Int               @default(0)
   method                  PaymentMethod
   status                  PaymentStatus     @default(PENDING)
-  idempotencyKey          String            @unique
+  idempotencyKey          String            @unique // `${appointmentId}:${attempt}`
+  attempt                 Int               @default(1)
   payerPhone              String? // mobile-money MSISDN, +255XXXXXXXXX
-  aggregatorTransactionId String?
+  aggregatorTransactionId String? // provider reference from initiateCollection
   externalReference       String?
   failureReason           String?
   paidAt                  DateTime?
+  refundAmountTzs         Int?
+  refundReference         String?
+  refundReason            String?
+  refundPending           Boolean           @default(false) // provider refund failed — chase manually
+  refundedAt              DateTime?
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
 
   @@index([patientId, createdAt])
   @@index([status])
+  @@index([aggregatorTransactionId])
+  @@index([status, updatedAt])
 }
 
 model DoctorPayment {
