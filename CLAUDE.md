@@ -158,6 +158,35 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
 - **Secrets only via validated env** — import `env` from `@daktari/config`;
   never read `process.env` directly outside that package (exception:
   `packages/db` lets Prisma read `DATABASE_URL` itself).
+- **Env requirement tiers (dev bootstrap):** only `NODE_ENV`, `DATABASE_URL`,
+  `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `ENCRYPTION_KEY`, `OTP_PEPPER` and
+  `FILE_SIGNING_SECRET` are required by the schema. **Every provider credential
+  is `.optional()`** so a developer boots on fakes; production correctness rests
+  entirely on `assertProductionReady`, which must therefore list every one of
+  them. Adding a provider means adding it to BOTH. `APP_URL`/`API_URL` default
+  to localhost and the guard rejects a localhost value in production. A blank
+  value in `.env` is normalized to `undefined` in `loadEnv` — `SMS_API_KEY=`
+  means "not configured", and without that normalization `.optional()` would
+  reject the empty string.
+- **Unset provider ⇒ fake, except AI.** No key selects `FakePayments` /
+  `ConsoleSms` / `FakeVideo` / `LocalDiskStorage`, and no `REDIS_URL` means an
+  in-memory rate limiter with `/health/ready` reporting redis `skipped`.
+  `ANTHROPIC_API_KEY` is the deliberate exception: unset makes screening throw
+  503 `AI_NOT_CONFIGURED` (`ScreeningService.requireAi`), because a stub that
+  answers medical triage plausibly is more dangerous than one that is plainly
+  unavailable.
+- **One `.env`, at the repo root**, loaded explicitly by path in every entry
+  point (`services/api-server/src/lib/load-env.ts` imported first in
+  `server.ts`, `apps/web/next.config.mjs`, `packages/db/prisma.config.ts` and
+  `prisma/seed.ts`). Never rely on CWD-relative `dotenv/config`: these commands
+  run from inside their own package, where no `.env` exists, and the failure is
+  silent.
+- **Local Postgres lives in the repo** at `.local/pg16` (binaries) and
+  `.local/pgdata` (cluster), managed by `scripts/db.mjs` — no Docker, WSL, or
+  admin rights. `pg_ctl` must be spawned with `stdio: 'ignore'`: the server it
+  forks inherits an stdout pipe and holds it open, so a piped `spawnSync` never
+  returns even though startup succeeded. Readiness is then polled with
+  `pg_isready`.
 - All money fields are named `*Tzs` and stored as integers.
 - Phone numbers are normalized to `+255XXXXXXXXX` at the schema layer.
 - IDs are CUIDs (Prisma `@default(cuid())`); schemas accept CUID or UUID.

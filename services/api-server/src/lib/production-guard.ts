@@ -14,6 +14,26 @@ export function findProductionAdapterOffenders(env: Env): string[] {
   const offenders: string[] = [];
   const missing = (value: string | undefined): boolean => value === undefined || value === '';
 
+  // The env schema deliberately makes these optional so local dev can boot on
+  // fakes; production correctness therefore rests entirely on this guard.
+
+  // Datastore — REDIS_URL unset means an in-memory rate limiter, which counts
+  // per process and so under-enforces across instances.
+  if (missing(env.REDIS_URL)) offenders.push('REDIS_URL');
+
+  // Public URLs — the schema defaults these to localhost, which would silently
+  // break CORS, the refresh-cookie origin, and every link in an SMS.
+  if (env.APP_URL.includes('localhost')) offenders.push('APP_URL');
+  if (env.API_URL.includes('localhost')) offenders.push('API_URL');
+
+  // AI screening — unset means every screening endpoint answers 503.
+  if (missing(env.ANTHROPIC_API_KEY)) offenders.push('ANTHROPIC_API_KEY');
+
+  // Document storage — unset means PHI documents land on the pod's local disk
+  // and vanish with it, instead of S3.
+  if (missing(env.AWS_ACCESS_KEY_ID)) offenders.push('AWS_ACCESS_KEY_ID');
+  if (missing(env.AWS_SECRET_ACCESS_KEY)) offenders.push('AWS_SECRET_ACCESS_KEY');
+
   // Payments — AzamPay collection/refund. Missing creds ⇒ FakePayments in prod.
   if (missing(env.AZAMPAY_CLIENT_ID)) offenders.push('AZAMPAY_CLIENT_ID');
   if (missing(env.AZAMPAY_CLIENT_SECRET)) offenders.push('AZAMPAY_CLIENT_SECRET');

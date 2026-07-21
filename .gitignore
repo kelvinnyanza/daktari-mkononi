@@ -1,6 +1,10 @@
 # dependencies
 node_modules/
 
+# local dev toolchain: portable PostgreSQL binaries, its data dir and log
+# (created by `pnpm db:start`; safe to delete the whole directory)
+.local/
+
 # build outputs
 dist/
 .turbo/

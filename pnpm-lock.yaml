@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@daktari/config':
+        specifier: workspace:*
+        version: link:packages/config
       '@eslint/js':
         specifier: ^9.30.0
         version: 9.39.5
@@ -169,6 +172,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.20
         version: 10.5.4(postcss@8.5.19)
+      dotenv:
+        specifier: ^16.4.0
+        version: 16.6.1
       jsdom:
         specifier: ^25.0.1
         version: 25.0.1
@@ -411,6 +417,9 @@ importers:
       '@fastify/websocket':
         specifier: ^11.0.0
         version: 11.3.0
+      dotenv:
+        specifier: ^16.4.0
+        version: 16.6.1
       fastify:
         specifier: ^5.1.0
         version: 5.10.0

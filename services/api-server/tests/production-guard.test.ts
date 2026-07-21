@@ -21,13 +21,9 @@ const prodEnv: Record<string, string> = {
   OTP_PEPPER: 'pepper-'.padEnd(32, 'x'),
   FILE_SIGNING_SECRET: 'files-'.padEnd(32, 'y'),
   ANTHROPIC_API_KEY: 'sk-ant-prod',
-  PAYMENT_API_KEY: 'pay-key',
-  PAYMENT_API_SECRET: 'pay-secret',
-  PAYMENT_CALLBACK_URL: 'https://api.daktari.co.tz/webhooks/payments',
   AWS_ACCESS_KEY_ID: 'AKIAPROD',
   AWS_SECRET_ACCESS_KEY: 'aws-secret',
   SMS_API_KEY: 'sms-key',
-  WHATSAPP_API_KEY: 'wa-key',
   DAILY_CO_API_KEY: 'daily-key',
   AZAMPAY_APP_NAME: 'daktari',
   AZAMPAY_CLIENT_ID: 'azam-id',
@@ -43,12 +39,15 @@ describe('production adapter guard', () => {
   });
 
   it('names ALL offenders at once, not first-failure-only', () => {
-    // SMS_API_KEY / DAILY_CO_API_KEY are required (min 1) in the env schema, so
-    // loadEnv would reject empties before the guard runs. The guard is a
-    // second enforcement layer, so mutate the parsed env directly to simulate
-    // every provider adapter being fake/unset at the same time.
+    // Every provider credential is now OPTIONAL in the env schema (so local dev
+    // boots on fakes), which makes this guard the sole thing standing between
+    // production and a console-SMS deployment. Simulate everything unset.
     const env = {
       ...loadEnv(prodEnv),
+      REDIS_URL: undefined,
+      ANTHROPIC_API_KEY: undefined,
+      AWS_ACCESS_KEY_ID: undefined,
+      AWS_SECRET_ACCESS_KEY: undefined,
       AZAMPAY_APP_NAME: undefined,
       AZAMPAY_CLIENT_ID: undefined,
       AZAMPAY_CLIENT_SECRET: undefined,
@@ -59,6 +58,10 @@ describe('production adapter guard', () => {
     const offenders = findProductionAdapterOffenders(env);
     expect(offenders).toEqual(
       expect.arrayContaining([
+        'REDIS_URL',
+        'ANTHROPIC_API_KEY',
+        'AWS_ACCESS_KEY_ID',
+        'AWS_SECRET_ACCESS_KEY',
         'AZAMPAY_CLIENT_ID',
         'AZAMPAY_CLIENT_SECRET',
         'AZAMPAY_APP_NAME',
@@ -67,7 +70,7 @@ describe('production adapter guard', () => {
         'DAILY_CO_API_KEY',
       ]),
     );
-    expect(offenders.length).toBe(6);
+    expect(offenders.length).toBe(10);
 
     const error = (() => {
       try {
@@ -92,6 +95,10 @@ describe('production adapter guard', () => {
   it('is a no-op outside production — dev keeps its fake/console fallbacks', () => {
     const devEnv = {
       ...loadEnv({ ...prodEnv, NODE_ENV: 'development' }),
+      REDIS_URL: undefined,
+      ANTHROPIC_API_KEY: undefined,
+      AWS_ACCESS_KEY_ID: undefined,
+      AWS_SECRET_ACCESS_KEY: undefined,
       AZAMPAY_APP_NAME: undefined,
       AZAMPAY_CLIENT_ID: undefined,
       AZAMPAY_CLIENT_SECRET: undefined,
@@ -100,6 +107,32 @@ describe('production adapter guard', () => {
     };
     expect(findProductionAdapterOffenders(devEnv)).toEqual([]);
     expect(() => assertProductionReady(devEnv)).not.toThrow();
+  });
+
+  it('the minimal dev environment boots clean but is refused in production', () => {
+    // This is exactly what `pnpm dev:setup` writes: secrets + database, no
+    // providers. It must be valid config AND must never pass as production.
+    const devSetupEnv: Record<string, string> = {
+      NODE_ENV: 'development',
+      DATABASE_URL: 'postgresql://daktari:daktari@localhost:5432/daktari_dev',
+      JWT_ACCESS_SECRET: 'a'.repeat(64),
+      JWT_REFRESH_SECRET: 'b'.repeat(64),
+      ENCRYPTION_KEY: '0f'.repeat(32),
+      OTP_PEPPER: 'pepper-'.padEnd(32, 'x'),
+      FILE_SIGNING_SECRET: 'files-'.padEnd(32, 'y'),
+    };
+    expect(() => loadEnv(devSetupEnv)).not.toThrow();
+    expect(findProductionAdapterOffenders(loadEnv(devSetupEnv))).toEqual([]);
+
+    const asProduction = loadEnv({ ...devSetupEnv, NODE_ENV: 'production' });
+    expect(() => assertProductionReady(asProduction)).toThrow(ProductionReadinessError);
+  });
+
+  it('rejects localhost URLs in production', () => {
+    // The schema defaults these for dev; shipping the default would break CORS
+    // and put localhost links in real SMS messages.
+    const env = { ...loadEnv(prodEnv), APP_URL: 'http://localhost:3000' };
+    expect(findProductionAdapterOffenders(env)).toEqual(['APP_URL']);
   });
 });
 

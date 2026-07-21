@@ -1,3 +1,9 @@
+// MUST be first: populates process.env from the repo-root .env before
+// @daktari/config validates it. The path is explicit because the server runs
+// with CWD = services/api-server, where no .env exists — a single root .env is
+// the one source of truth for every workspace package.
+import './lib/load-env.js';
+
 import { Redis } from 'ioredis';
 import { loadEnv, type Env } from '@daktari/config';
 import {
@@ -34,7 +40,10 @@ import { startScreeningExpirySweep } from './modules/ai/screening.service.js';
 import { startPaymentReconciliation } from './modules/payments/payment.service.js';
 
 function createSmsPort(env: Env): SmsPort {
-  if (env.NODE_ENV === 'production') {
+  // Key present ⇒ real gateway (any environment, so staging can send for real).
+  // Unset ⇒ ConsoleSms, which prints OTP codes to this console — that is how
+  // you sign in locally.
+  if (env.SMS_API_KEY !== undefined) {
     return new AfricasTalkingSms({
       apiKey: env.SMS_API_KEY,
       username: env.SMS_USERNAME,
@@ -45,7 +54,7 @@ function createSmsPort(env: Env): SmsPort {
 }
 
 function createStorage(env: Env): { storage: StoragePort; localFiles: LocalFileReader } {
-  if (env.NODE_ENV === 'production') {
+  if (env.AWS_ACCESS_KEY_ID !== undefined && env.AWS_SECRET_ACCESS_KEY !== undefined) {
     return {
       storage: new S3Storage({
         bucket: 'daktari-documents',
@@ -80,7 +89,7 @@ function createMobileMoney(env: Env): MobileMoneyPort {
 }
 
 function createVideo(env: Env): VideoPort {
-  if (env.NODE_ENV === 'production') {
+  if (env.DAILY_CO_API_KEY !== undefined) {
     return new DailyCoVideo({ apiKey: env.DAILY_CO_API_KEY });
   }
   return new FakeVideo();
@@ -93,7 +102,13 @@ async function main(): Promise<void> {
   // names every offender at once so the operator fixes them in one pass.
   assertProductionReady(env);
 
-  const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: 2 });
+  // Redis is optional outside production: without it the rate limiter falls
+  // back to @fastify/rate-limit's in-memory store (correct for one process,
+  // which is all local dev runs) and readiness reports redis 'skipped' rather
+  // than 'error'. The production guard requires REDIS_URL.
+  const redis = env.REDIS_URL === undefined
+    ? null
+    : new Redis(env.REDIS_URL, { maxRetriesPerRequest: 2 });
   const { storage, localFiles } = createStorage(env);
 
   // Prisma cannot declare the partial unique index that arbitrates bookings.
@@ -114,7 +129,13 @@ async function main(): Promise<void> {
       medicalRecords: medicalRecordRepository,
       ratings: ratingRepository,
       screenings: screeningRepository,
-      ai: new AnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY, model: env.AI_MODEL }),
+      // No key ⇒ no AI. Deliberately NOT faked: a stub that answers medical
+      // triage plausibly is more dangerous than one that is plainly absent,
+      // so the screening endpoints return 503 AI_NOT_CONFIGURED instead.
+      ai:
+        env.ANTHROPIC_API_KEY === undefined
+          ? null
+          : new AnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY, model: env.AI_MODEL }),
       paymentsRepo: paymentRepository,
       doctorPayments: doctorPaymentRepository,
       mobileMoney: createMobileMoney(env),
@@ -128,9 +149,13 @@ async function main(): Promise<void> {
         db: async () => {
           await prisma.$queryRaw`SELECT 1`;
         },
-        redis: async () => {
-          await redis.ping();
-        },
+        // null ⇒ /health/ready reports redis 'skipped' instead of 'error'.
+        redis:
+          redis === null
+            ? null
+            : async () => {
+                await redis.ping();
+              },
       },
     },
     redis,
@@ -164,7 +189,7 @@ async function main(): Promise<void> {
         stopReconciliation();
         await app.close(); // stop accepting, wait for in-flight requests
         await prisma.$disconnect();
-        redis.disconnect();
+        redis?.disconnect();
         app.log.info('shutdown complete');
         process.exit(0);
       } catch (error) {

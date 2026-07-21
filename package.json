@@ -14,9 +14,19 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "dev:setup": "node scripts/dev-setup.mjs",
+    "dev:doctor": "node scripts/dev-doctor.mjs",
+    "db:install": "node scripts/db.mjs install",
+    "db:start": "node scripts/db.mjs start",
+    "db:stop": "node scripts/db.mjs stop",
+    "db:status": "node scripts/db.mjs status",
+    "db:reset": "node scripts/db.mjs reset",
+    "db:push": "pnpm --filter @daktari/db db:push",
+    "db:seed": "pnpm --filter @daktari/db db:seed"
   },
   "devDependencies": {
+    "@daktari/config": "workspace:*",
     "@eslint/js": "^9.30.0",
     "eslint": "^9.30.0",
     "prettier": "^3.5.0",

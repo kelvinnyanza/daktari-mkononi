@@ -79,7 +79,12 @@ export interface ScreeningServiceDeps {
   doctors: DoctorRepoPort;
   appointments: AppointmentRepoPort;
   users: UserRepoPort;
-  ai: AiPort;
+  /**
+   * null when ANTHROPIC_API_KEY is unset. There is deliberately no fake: a
+   * stub that answers medical triage plausibly is more dangerous than one that
+   * is plainly unavailable, so screening reports 503 instead.
+   */
+  ai: AiPort | null;
   auditLogs: AuditLogPort;
 }
 
@@ -90,12 +95,28 @@ export class ScreeningService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  /** Guards every entry point that would reach the model. */
+  private requireAi(): AiPort {
+    if (this.deps.ai === null) {
+      throw new ApiError(
+        503,
+        'AI_NOT_CONFIGURED',
+        msg(
+          'Huduma ya uchunguzi kwa AI haipatikani kwa sasa. Tafadhali weka miadi na daktari moja kwa moja.',
+          'AI screening is not available. Please book an appointment with a doctor directly.',
+        ),
+      );
+    }
+    return this.deps.ai;
+  }
+
   // ── Session lifecycle ──────────────────────────────────────────────────────
 
   async startSession(
     userId: string,
     language?: ScreeningLanguage,
   ): Promise<{ sessionId: string; status: string; message: string }> {
+    this.requireAi(); // fail before creating a session we could never answer
     const patient = await this.ownPatient(userId);
     const since = new Date(this.now().getTime() - 24 * 60 * 60_000);
     if ((await this.deps.screenings.countCreatedSince(patient.id, since)) >= SESSIONS_PER_DAY) {
@@ -127,6 +148,7 @@ export class ScreeningService {
    *   output gate → structured triage check → persistence/completion.
    */
   async handleMessage(userId: string, id: string, message: string): Promise<ScreeningReply> {
+    const ai = this.requireAi();
     const patient = await this.ownPatient(userId);
     let session = await this.deps.screenings.findById(id);
     if (!session || session.patientId !== patient.id) throw SESSION_NOT_FOUND();
@@ -185,7 +207,7 @@ export class ScreeningService {
     let replyText: string;
     let tokensThisTurn = 0;
     try {
-      const completion = await this.deps.ai.complete({
+      const completion = await ai.complete({
         system,
         messages: transcript.map((entry) => ({ role: entry.role, content: entry.content })),
         maxTokens: MAX_TOKENS_PER_TURN,
@@ -208,7 +230,7 @@ export class ScreeningService {
     // 6. Structured triage check over the updated transcript.
     let triage: TriageCheck;
     try {
-      const structured = await this.deps.ai.completeStructured(
+      const structured = await ai.completeStructured(
         {
           system: TRIAGE_CHECK_SYSTEM_PROMPT,
           messages: [

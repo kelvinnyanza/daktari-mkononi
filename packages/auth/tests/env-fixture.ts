@@ -19,13 +19,9 @@ export function applyTestEnv(): void {
     OTP_PEPPER: 'pepper-'.padEnd(32, 'x'),
     FILE_SIGNING_SECRET: 'files-'.padEnd(32, 'y'),
     ANTHROPIC_API_KEY: 'sk-ant-test',
-    PAYMENT_API_KEY: 'pay-key',
-    PAYMENT_API_SECRET: 'pay-secret',
-    PAYMENT_CALLBACK_URL: 'http://localhost:4000/webhooks/payments',
     AWS_ACCESS_KEY_ID: 'AKIATEST',
     AWS_SECRET_ACCESS_KEY: 'aws-secret',
     SMS_API_KEY: 'sms-key',
-    WHATSAPP_API_KEY: 'wa-key',
     DAILY_CO_API_KEY: 'daily-key',
   });
   resetEnvCache();

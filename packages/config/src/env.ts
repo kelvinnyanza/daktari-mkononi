@@ -13,16 +13,34 @@ const redisUrl = z
  *
  * Secrets are only ever read through this schema — no `process.env` access
  * elsewhere in the codebase (see CLAUDE.md).
+ *
+ * **Requirement tiers.** Only the variables that have no safe default and no
+ * fake — the datastore and the secrets that protect PHI — are required
+ * everywhere. Every external provider is optional here and enforced for
+ * production by `assertProductionReady` in the api-server, which names all
+ * offenders at once. That split is what lets a developer boot with nothing but
+ * a Postgres URL while production still refuses to start on console adapters.
+ *
+ * The one deliberate exception is ANTHROPIC_API_KEY: unset does NOT fall back
+ * to a fake, because a fake medical triage that answers plausibly is more
+ * dangerous than one that is plainly unavailable. Screening returns 503
+ * AI_NOT_CONFIGURED instead.
  */
 export const envSchema = z.object({
-  // Core
+  // ── Always required ───────────────────────────────────────────────────────
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  APP_URL: z.string().url(),
-  API_URL: z.string().url(),
-
-  // Datastores
   DATABASE_URL: postgresUrl,
-  REDIS_URL: redisUrl,
+
+  // ── Dev-defaulted, production-enforced ────────────────────────────────────
+  // Localhost defaults are correct for dev and wrong-but-harmless in
+  // production, where the guard requires them to be set explicitly.
+  APP_URL: z.string().url().default('http://localhost:3000'),
+  API_URL: z.string().url().default('http://localhost:4000'),
+
+  // Unset in dev ⇒ in-memory rate limiting and /health/ready reports redis
+  // 'skipped'. Required in production, where a single-process limiter would
+  // silently under-count across instances.
+  REDIS_URL: redisUrl.optional(),
 
   // Auth
   JWT_ACCESS_SECRET: z.string().min(64, 'must be at least 64 characters'),
@@ -43,15 +61,16 @@ export const envSchema = z.object({
   // Local dev file storage root (LocalDiskStorage); S3 takes over in production
   STORAGE_ROOT: z.string().min(1).default('.storage'),
 
-  // AI
-  ANTHROPIC_API_KEY: z.string().min(1),
+  // ── AI (screening/triage) ─────────────────────────────────────────────────
+  // Unset ⇒ screening endpoints answer 503 AI_NOT_CONFIGURED. Never faked.
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
   AI_MODEL: z.string().min(1).default('claude-sonnet-4-6'),
 
-  // Payments — Tanzania mobile money aggregator (TZS only)
-  PAYMENT_API_KEY: z.string().min(1),
-  PAYMENT_API_SECRET: z.string().min(1),
-  PAYMENT_CALLBACK_URL: z.string().url(),
-  // AzamPay (all optional — the provider reports NOT_CONFIGURED when missing)
+  // ── Payments — Tanzania mobile money aggregator (TZS only) ────────────────
+  // NOTE: PAYMENT_API_KEY / PAYMENT_API_SECRET / PAYMENT_CALLBACK_URL were
+  // removed — they predate the AzamPay provider (Phase 7) and nothing has read
+  // them since. Requiring them only blocked local boot.
+  // Unset ⇒ FakePayments in dev; the production guard requires them.
   AZAMPAY_APP_NAME: z.string().min(1).optional(),
   AZAMPAY_CLIENT_ID: z.string().min(1).optional(),
   AZAMPAY_CLIENT_SECRET: z.string().min(1).optional(),
@@ -60,21 +79,25 @@ export const envSchema = z.object({
   AZAMPAY_CHECKOUT_BASE_URL: z.string().url().optional(),
   AZAMPAY_WEBHOOK_SECRET: z.string().min(16).optional(),
 
-  // AWS (document storage)
-  AWS_ACCESS_KEY_ID: z.string().min(1),
-  AWS_SECRET_ACCESS_KEY: z.string().min(1),
+  // ── AWS (document storage) ────────────────────────────────────────────────
+  // Unset ⇒ LocalDiskStorage under STORAGE_ROOT; S3 takes over in production.
+  AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   AWS_REGION: z.string().min(1).default('af-south-1'),
 
-  // Messaging
-  SMS_API_KEY: z.string().min(1),
+  // ── Messaging ─────────────────────────────────────────────────────────────
+  // Unset ⇒ ConsoleSms (OTP codes print to the API console — how you sign in
+  // locally). WHATSAPP_API_KEY was removed: nothing reads it yet.
+  SMS_API_KEY: z.string().min(1).optional(),
   SMS_USERNAME: z.string().min(1).default('sandbox'),
   SMS_SENDER_ID: z.string().min(1).max(11).default('DAKTARI'),
-  WHATSAPP_API_KEY: z.string().min(1),
 
-  // Video consultations
-  DAILY_CO_API_KEY: z.string().min(1),
+  // ── Video consultations ───────────────────────────────────────────────────
+  // Unset ⇒ FakeVideo (rooms/tokens are stubs, no real call is placed).
+  DAILY_CO_API_KEY: z.string().min(1).optional(),
 
-  // Observability
+  // ── Observability ─────────────────────────────────────────────────────────
+  // Reserved: validated so a typo is caught, not yet wired to a reporter.
   SENTRY_DSN: z.string().url().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
@@ -86,7 +109,18 @@ export type Env = z.infer<typeof envSchema>;
  * typed result. Throws with a readable, per-variable error report on failure.
  */
 export function loadEnv(source: Record<string, string | undefined> = process.env): Env {
-  const result = envSchema.safeParse(source);
+  // A blank value means "not configured", not "configured as empty string".
+  // `.env` files spell an unset provider as `SMS_API_KEY=` (a present, empty
+  // value), and dotenv faithfully reports `''` — which `.optional()` rejects,
+  // since optional only admits `undefined`. Without this, the generated dev
+  // .env would fail validation on every commented-out provider. Required
+  // variables are unaffected: a blank one still fails, as "Required".
+  const normalized: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(source)) {
+    normalized[key] = value === '' ? undefined : value;
+  }
+
+  const result = envSchema.safeParse(normalized);
   if (!result.success) {
     const lines = result.error.issues.map((issue) => {
       const key = issue.path.join('.') || '(root)';

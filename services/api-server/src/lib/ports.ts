@@ -321,7 +321,7 @@ export interface AppDeps {
   medicalRecords: MedicalRecordRepoPort;
   ratings: RatingRepoPort;
   screenings: ScreeningRepoPort;
-  ai: AiPort;
+  ai: AiPort | null;
   paymentsRepo: PaymentRepoPort;
   doctorPayments: DoctorPaymentRepoPort;
   mobileMoney: MobileMoneyPort;

@@ -496,6 +496,59 @@ describe('access control + booking link-up', () => {
   });
 });
 
+/**
+ * ANTHROPIC_API_KEY unset. Screening is the one capability with NO dev fake:
+ * a stub that answers medical triage plausibly is more dangerous than one that
+ * is plainly unavailable, so the endpoints must refuse rather than degrade.
+ */
+describe('AI not configured', () => {
+  let unconfigured: ScreeningService;
+
+  beforeEach(() => {
+    unconfigured = new ScreeningService({ ...deps, ai: null }, limiter, () => clock.now);
+  });
+
+  it('refuses to start a session with 503 AI_NOT_CONFIGURED', async () => {
+    const { user } = deps.seedPatient();
+    const error = await expectApiError(unconfigured.startSession(user.id), 'AI_NOT_CONFIGURED');
+    expect(error.statusCode).toBe(503);
+  });
+
+  it('answers bilingually and points at booking a doctor instead', async () => {
+    const { user } = deps.seedPatient({ phone: '+255754222001' });
+    const error = await expectApiError(unconfigured.startSession(user.id), 'AI_NOT_CONFIGURED');
+    expect(error.message).toBeTruthy();
+    const message = (error as unknown as { userMessage?: { sw: string; en: string } }).userMessage;
+    expect(message?.sw).toContain('daktari');
+    expect(message?.en).toContain('doctor');
+  });
+
+  it('creates NO session row when it refuses', async () => {
+    // Fail before persisting: a session we can never answer would sit in the
+    // patient's history as an abandoned conversation.
+    const { user, patient } = deps.seedPatient({ phone: '+255754222002' });
+    await expectApiError(unconfigured.startSession(user.id), 'AI_NOT_CONFIGURED');
+    const since = new Date(clock.now.getTime() - 60_000);
+    expect(await deps.screenings.countCreatedSince(patient.id, since)).toBe(0);
+  });
+
+  it('refuses to continue an existing session too', async () => {
+    // Started while the key WAS present; the key then disappeared.
+    const { user, sessionId } = await startedSession({ phone: '+255754222003' });
+    const error = await expectApiError(
+      unconfigured.handleMessage(user.id, sessionId, 'Nina homa'),
+      'AI_NOT_CONFIGURED',
+    );
+    expect(error.statusCode).toBe(503);
+  });
+
+  it('still serves the non-AI read paths', async () => {
+    // Admin usage stats and session reads never call the model, so they must
+    // keep working — only the model-backed paths are gated.
+    await expect(unconfigured.usageSummary()).resolves.toBeDefined();
+  });
+});
+
 describe('admin usage summary', () => {
   it('aggregates sessions, tokens, triage distribution, and emergencies', async () => {
     const first = await startedSession({ phone: '+255754111001' });

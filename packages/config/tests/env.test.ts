@@ -1,25 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { loadEnv } from '../src/env.js';
 
-const validEnv: Record<string, string> = {
+/**
+ * The always-required tier and nothing else — this is exactly what
+ * `pnpm dev:setup` writes, so if this stops parsing, local first-run breaks.
+ */
+const minimalEnv: Record<string, string> = {
   NODE_ENV: 'test',
-  APP_URL: 'http://localhost:3000',
-  API_URL: 'http://localhost:4000',
   DATABASE_URL: 'postgresql://daktari:daktari@localhost:5432/daktari_mkononi',
-  REDIS_URL: 'redis://localhost:6379',
   JWT_ACCESS_SECRET: 'a'.repeat(64),
   JWT_REFRESH_SECRET: 'b'.repeat(64),
   ENCRYPTION_KEY: '0f'.repeat(32),
   OTP_PEPPER: 'pepper-'.padEnd(32, 'x'),
   FILE_SIGNING_SECRET: 'files-'.padEnd(32, 'y'),
+};
+
+/** Every provider wired, as production would be. */
+const validEnv: Record<string, string> = {
+  ...minimalEnv,
+  APP_URL: 'http://localhost:3000',
+  API_URL: 'http://localhost:4000',
+  REDIS_URL: 'redis://localhost:6379',
   ANTHROPIC_API_KEY: 'sk-ant-test',
-  PAYMENT_API_KEY: 'pay-key',
-  PAYMENT_API_SECRET: 'pay-secret',
-  PAYMENT_CALLBACK_URL: 'http://localhost:4000/webhooks/payments',
   AWS_ACCESS_KEY_ID: 'AKIATEST',
   AWS_SECRET_ACCESS_KEY: 'aws-secret',
   SMS_API_KEY: 'sms-key',
-  WHATSAPP_API_KEY: 'wa-key',
   DAILY_CO_API_KEY: 'daily-key',
 };
 
@@ -73,15 +78,85 @@ describe('loadEnv', () => {
   });
 
   it('reports every invalid variable in one readable error', () => {
-    const { ANTHROPIC_API_KEY: _a, DAILY_CO_API_KEY: _b, ...rest } = validEnv;
+    const { JWT_ACCESS_SECRET: _a, OTP_PEPPER: _b, ...rest } = validEnv;
     try {
       loadEnv(rest);
       expect.unreachable('loadEnv should have thrown');
     } catch (error) {
       const message = (error as Error).message;
-      expect(message).toContain('ANTHROPIC_API_KEY');
-      expect(message).toContain('DAILY_CO_API_KEY');
+      expect(message).toContain('JWT_ACCESS_SECRET');
+      expect(message).toContain('OTP_PEPPER');
       expect(message).toContain('Invalid environment configuration');
+    }
+  });
+});
+
+/**
+ * Requirement tiers. Local dev must boot with a database and secrets alone;
+ * every external provider is enforced for production by the api-server's
+ * production guard, not here.
+ */
+describe('loadEnv — requirement tiers', () => {
+  it('accepts the minimal dev environment: datastore + secrets only', () => {
+    const env = loadEnv(minimalEnv);
+    expect(env.DATABASE_URL).toContain('postgresql://');
+  });
+
+  it.each([
+    'NODE_ENV',
+    'DATABASE_URL',
+    'JWT_ACCESS_SECRET',
+    'JWT_REFRESH_SECRET',
+    'ENCRYPTION_KEY',
+    'OTP_PEPPER',
+    'FILE_SIGNING_SECRET',
+  ])('has no usable default for %s beyond NODE_ENV', (key) => {
+    const { [key]: _omitted, ...rest } = minimalEnv;
+    if (key === 'NODE_ENV') {
+      // The one exception: NODE_ENV defaults to development.
+      expect(loadEnv(rest).NODE_ENV).toBe('development');
+      return;
+    }
+    expect(() => loadEnv(rest)).toThrowError(new RegExp(key));
+  });
+
+  it.each([
+    'REDIS_URL',
+    'ANTHROPIC_API_KEY',
+    'AWS_ACCESS_KEY_ID',
+    'AWS_SECRET_ACCESS_KEY',
+    'SMS_API_KEY',
+    'DAILY_CO_API_KEY',
+    'AZAMPAY_CLIENT_ID',
+  ])('treats provider credential %s as optional (fakes cover it in dev)', (key) => {
+    expect(() => loadEnv(minimalEnv)).not.toThrow();
+    expect(loadEnv(minimalEnv)[key as 'REDIS_URL']).toBeUndefined();
+  });
+
+  it('defaults the public URLs to localhost for dev', () => {
+    const env = loadEnv(minimalEnv);
+    expect(env.APP_URL).toBe('http://localhost:3000');
+    expect(env.API_URL).toBe('http://localhost:4000');
+  });
+
+  it('still validates an optional variable when it IS provided', () => {
+    // Optional must not mean unchecked — a typo'd Redis URL should fail loudly.
+    expect(() => loadEnv({ ...minimalEnv, REDIS_URL: 'http://localhost:6379' })).toThrowError(
+      /REDIS_URL/,
+    );
+  });
+
+  it('no longer carries the retired PAYMENT_*/WHATSAPP ghosts', () => {
+    // These were required but unread since Phase 7's AzamPay provider landed;
+    // requiring them blocked local boot for no benefit.
+    const env = loadEnv(minimalEnv) as unknown as Record<string, unknown>;
+    for (const ghost of [
+      'PAYMENT_API_KEY',
+      'PAYMENT_API_SECRET',
+      'PAYMENT_CALLBACK_URL',
+      'WHATSAPP_API_KEY',
+    ]) {
+      expect(env[ghost]).toBeUndefined();
     }
   });
 

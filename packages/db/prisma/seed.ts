@@ -3,8 +3,18 @@
  * Run with: pnpm --filter @daktari/db db:seed
  */
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 import { hashPassword } from '@daktari/encryption';
 import { PrismaClient } from '@prisma/client';
+
+// Load the repo-root .env explicitly, before the client reads DATABASE_URL:
+// the seed is run directly (`tsx prisma/seed.ts`) with CWD = packages/db, so
+// nothing else would populate it and Prisma would fail with a bare
+// "Environment variable not found: DATABASE_URL".
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+dotenv.config({ path: path.join(REPO_ROOT, '.env') });
 
 const prisma = new PrismaClient();
 
