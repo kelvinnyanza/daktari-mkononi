@@ -182,7 +182,8 @@ Open the installed **Daktari Mkononi dev build** on the phone (not Expo Go) and
 it connects to the Metro bundler over the LAN.
 
 **LAN gotchas.** `EXPO_PUBLIC_API_URL` must be the laptop's Wi-Fi IP, not
-`localhost`. Phone and laptop must be on the same network, and the laptop
+`localhost`. There is no fallback: if it is missing or not an `http(s)://` URL
+the app shows a bilingual "app is misconfigured" screen instead of starting. Phone and laptop must be on the same network, and the laptop
 firewall must allow inbound TCP on **4000** (API) and **8081** (Metro). The API
 already listens on `0.0.0.0`, so it is reachable over the LAN. Native
 `fetch`/`WebSocket` are not subject to browser CORS, so no server CORS change is

@@ -19,6 +19,9 @@ export const sw = {
   'common.error.generic': 'Hitilafu imetokea upande wetu — jaribu tena',
   'common.error.network': 'Hakuna mtandao — angalia intaneti yako kisha ujaribu tena',
   'common.comingSoon': 'Huduma hii inakuja hivi karibuni',
+  'config.misconfigured.title': 'Programu haijasanidiwa ipasavyo',
+  'config.misconfigured.body': 'Anwani ya seva (EXPO_PUBLIC_API_URL) haijawekwa au si sahihi, kwa hiyo programu haiwezi kuunganishwa. Hili ni tatizo la usanidi wa toleo hili, si la simu yako — wasiliana na timu ya Daktari Mkononi.',
+  'config.misconfigured.emergency': 'Kama ni dharura, piga 112 au 115 sasa hivi.',
 
   // Emergency (server-canonical: 112 universal, 115 ambulance — never others)
   'emergency.banner': 'Dharura? Piga 112 au 115 sasa hivi',
@@ -281,6 +284,9 @@ export const en: Record<TranslationKey, string> = {
   'common.error.generic': 'Something went wrong on our side — please try again',
   'common.error.network': 'No connection — check your internet and try again',
   'common.comingSoon': 'This feature is coming soon',
+  'config.misconfigured.title': 'The app is misconfigured',
+  'config.misconfigured.body': 'The server address (EXPO_PUBLIC_API_URL) is missing or invalid, so the app cannot connect. This is a problem with how this build was configured, not with your phone — please contact the Daktari Mkononi team.',
+  'config.misconfigured.emergency': 'If this is an emergency, call 112 or 115 now.',
 
   'emergency.banner': 'Emergency? Call 112 or 115 now',
   'emergency.line': 'If this is an emergency, call 112 or 115 now.',

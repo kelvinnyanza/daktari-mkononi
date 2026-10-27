@@ -2,10 +2,19 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
+import { MisconfiguredScreen } from '../src/components/misconfigured-screen';
 import { onSessionExpired } from '../src/services/api';
+import { API_CONFIG } from '../src/services/config';
 import { useAuthStore } from '../src/stores/auth';
 
 export default function RootLayout(): React.JSX.Element {
+  // Missing/invalid EXPO_PUBLIC_API_URL: render no route at all, so no screen
+  // can fire requests at an empty base URL.
+  if (!API_CONFIG.ok) return <MisconfiguredScreen />;
+  return <ConfiguredApp />;
+}
+
+function ConfiguredApp(): React.JSX.Element {
   const router = useRouter();
   const signOut = useAuthStore((state) => state.signOut);
   // One QueryClient for the app: gentle retries with backoff for 2G/3G.
