@@ -20,8 +20,10 @@ const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 if (!TEST_DATABASE_URL) {
   console.warn(
     '[integration] TEST_DATABASE_URL is not set — skipping API integration tests. ' +
-      'Start Postgres (docker compose or portable pg_ctl — see README), ' +
-      'push the schema to a test database, and export TEST_DATABASE_URL to enable them.',
+      'To run them against the repo-local portable Postgres (.local/pg16, no Docker): ' +
+      '`pnpm db:start` (creates daktari_test), push the schema into daktari_test ' +
+      '(DATABASE_URL=<test url> pnpm db:push), then set ' +
+      'TEST_DATABASE_URL=postgresql://daktari:daktari@localhost:5432/daktari_test. See README.',
   );
 }
 

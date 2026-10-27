@@ -3,17 +3,19 @@ packages:
   - "packages/*"
   - "services/*"
 
-# The monorepo runs two React majors on purpose: apps/mobile is React 18
-# (React Native 0.76) and apps/web is React 19 (Next 15).
+# The monorepo runs two React copies on purpose: apps/mobile is React 19.1
+# (React Native 0.81 / Expo SDK 54, which pins React exactly) and apps/web is
+# React 19.2 (Next 15.5). Same major, but each app has its own @types/react
+# (19.1.x vs 19.2.x), so the hoisting problem below still applies.
 #
 # The packages below ship .d.ts files that import `react` but declare no
 # dependency on @types/react, so they used to resolve it through pnpm's single
-# hoisted copy. Once the web portal introduced React 19 types, whichever major
-# landed in that shared slot leaked into the other app — "Stack cannot be used
+# hoisted copy. Whenever the two apps' @types/react differ, whichever copy
+# landed in that shared slot leaks into the other app — "Stack cannot be used
 # as a JSX component" in mobile, or the mirror-image failure in web.
 #
 # Declaring @types/react a peer makes pnpm install these packages once per
-# React major and resolve each app's copy from the app itself. The peer is
+# @types/react version and resolve each app's copy from the app itself. The peer is
 # deliberately NOT optional: an optional peer is skipped when unsatisfied,
 # which puts us straight back on the hoisted fallback.
 #

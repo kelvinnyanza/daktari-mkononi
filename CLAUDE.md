@@ -135,14 +135,17 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
 - Prisma + PostgreSQL (`packages/db`), Redis for cache/queues
 - Fastify API (`services/*`), Next.js 15 App Router web portal (`apps/web`),
   Expo mobile (`apps/mobile`)
-- **Two React majors on purpose:** `apps/mobile` is React 18 (React Native
-  0.76), `apps/web` is React 19 (Next 15). Libraries that ship types importing
+- **Two React copies on purpose:** `apps/mobile` is React 19.1 (React Native
+  0.81, Expo SDK 54 — Expo pins the exact React version), `apps/web` is React
+  19.2 (Next 15.5). Same major, but each app resolves its **own**
+  `@types/react` (19.1.x vs 19.2.x). Libraries that ship types importing
   `react` without declaring `@types/react` must be listed under
   `packageExtensions` in `pnpm-workspace.yaml` with a **non-optional**
   `@types/react` peer — otherwise they resolve through pnpm's single hoisted
-  copy and leak one major into the other app ("X cannot be used as a JSX
-  component"). Do not fix this with tsconfig `paths`: jest-expo turns mobile's
-  `paths` into runtime `moduleNameMapper` entries and breaks its test resolver.
+  copy and one app type-checks against the other's React ("X cannot be used as
+  a JSX component"). Do not fix this with tsconfig `paths`: jest-expo turns
+  mobile's `paths` into runtime `moduleNameMapper` entries and breaks its test
+  resolver (web no longer pins `react` via `paths` either).
 - Node >= 20, pnpm >= 9. ESM (`"type": "module"`, NodeNext resolution — relative
   imports need `.js` extensions)
 

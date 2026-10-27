@@ -17,16 +17,8 @@
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "baseUrl": ".",
-    // See apps/mobile/tsconfig.json: the monorepo runs React 18 (mobile) and
-    // React 19 (here) side by side, and pnpm has only one hoisted @types/react
-    // for packages that do not declare it. Pinning `react` to this app's own
-    // React 19 typings keeps library .d.ts files (react-query, next) on the
-    // same major as the app itself.
     "paths": {
-      "@/*": ["./src/*"],
-      "react": ["./node_modules/@types/react"],
-      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
-      "react-dom": ["./node_modules/@types/react-dom"]
+      "@/*": ["./src/*"]
     },
     "types": ["node", "vitest/globals", "@testing-library/jest-dom"]
   },
