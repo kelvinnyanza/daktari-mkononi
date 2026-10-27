@@ -16,28 +16,14 @@
  * whose database name does not end in `_test`.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_TEST_DATABASE_URL } from './db.mjs';
+import { readEnvFile } from './env-file.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ENV_TEST = path.join(REPO_ROOT, '.env.test');
 const isCi = Boolean(process.env.CI);
-
-/** Minimal KEY=VALUE reader — root has no dotenv dependency, and we need one key. */
-function readEnvFileValue(file, key) {
-  if (!existsSync(file)) return undefined;
-  for (const raw of readFileSync(file, 'utf8').split(/\r?\n/)) {
-    const line = raw.trim();
-    if (line === '' || line.startsWith('#')) continue;
-    const eq = line.indexOf('=');
-    if (eq === -1 || line.slice(0, eq).trim() !== key) continue;
-    const value = line.slice(eq + 1).trim().replace(/^(['"])(.*)\1$/, '$2');
-    return value === '' ? undefined : value;
-  }
-  return undefined;
-}
 
 function step(label, command, args, env = {}) {
   console.log(`\n▶ ${label}`);
@@ -57,7 +43,7 @@ function step(label, command, args, env = {}) {
 
 const testUrl =
   process.env.TEST_DATABASE_URL ||
-  readEnvFileValue(ENV_TEST, 'TEST_DATABASE_URL') ||
+  readEnvFile(ENV_TEST).TEST_DATABASE_URL ||
   (isCi ? undefined : DEFAULT_TEST_DATABASE_URL);
 
 if (!testUrl) {
