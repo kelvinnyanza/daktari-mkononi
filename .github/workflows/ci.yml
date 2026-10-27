@@ -1,0 +1,91 @@
+# Lint, typecheck, unit tests, then the API integration tests against a real
+# Postgres 16. No deploy steps.
+#
+# Every value below is a dummy for this throwaway CI database — no secrets.
+# Unit tests need no env at all (verified with no .env present; turbo's strict
+# env mode would not forward job env to them anyway). The integration suite
+# sets its own fake secrets in tests/helpers/env.ts.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Lint, typecheck, unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version comes from package.json#packageManager.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # TEST_DATABASE_URL is deliberately unset here, so the integration
+      # suite skips; it runs in its own job against the service container.
+      - name: Unit tests
+        run: pnpm test
+
+  integration:
+    name: Integration tests (Postgres 16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: daktari
+          POSTGRES_PASSWORD: daktari
+          POSTGRES_DB: daktari_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U daktari -d daktari_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # CI=true (set by GitHub) makes scripts/test-integration.mjs skip the
+      # portable Postgres and use this URL directly.
+      TEST_DATABASE_URL: postgresql://daktari:daktari@localhost:5432/daktari_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Workspace packages resolve to dist/, so build the API's dependencies.
+      - name: Build API dependencies
+        run: pnpm turbo run build --filter=@daktari/api-server^...
+
+      - name: Integration tests
+        run: pnpm test:integration
