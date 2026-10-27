@@ -30,6 +30,9 @@ export const PG_USER = 'daktari';
 export const PG_PASSWORD = 'daktari';
 export const DEV_DB = 'daktari_dev';
 export const TEST_DB = 'daktari_test';
+// trust auth on localhost (see install) — the password is not a secret.
+export const DEFAULT_TEST_DATABASE_URL =
+  `postgresql://${PG_USER}:${PG_PASSWORD}@localhost:${PG_PORT}/${TEST_DB}`;
 
 // EnterpriseDB publishes the same portable zips the installers unpack.
 const DOWNLOAD_URL =

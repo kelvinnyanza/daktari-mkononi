@@ -133,18 +133,21 @@ Binaries live in `.local/pg16`, data in `.local/pgdata`, log at `.local/pg.log`
 | `pnpm test` | Vitest/Jest suites across the workspace |
 
 The API server's integration tests only run when `TEST_DATABASE_URL` points at a
-migrated database (they are skipped otherwise, with a notice):
+migrated database (`pnpm test` skips them, with a notice). One command does
+everything against the portable Postgres:
 
 ```powershell
-$env:TEST_DATABASE_URL = 'postgresql://daktari:daktari@localhost:5432/daktari_test'
-pnpm test
+pnpm test:integration
 ```
 
-`pnpm db:start` creates `daktari_test` for you. Push the schema into it once:
+It starts `.local/pg16` (`pnpm db:start`, which creates `daktari_test` if
+missing), reads `TEST_DATABASE_URL` from `.env.test` (falls back to the portable
+cluster's `daktari_test`), pushes the Prisma schema into it and runs the suite.
+It refuses any database whose name does not end in `_test`, because the suite
+deletes every row it touches. Create `.env.test` (gitignored) with:
 
-```powershell
-$env:DATABASE_URL = 'postgresql://daktari:daktari@localhost:5432/daktari_test'
-pnpm db:push
+```
+TEST_DATABASE_URL=postgresql://daktari:daktari@localhost:5432/daktari_test
 ```
 
 ## Running the mobile app (`apps/mobile`)

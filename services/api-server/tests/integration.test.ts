@@ -1,8 +1,8 @@
 /**
  * End-to-end flows against a real Postgres database.
  *
- * Gated: set TEST_DATABASE_URL to a migrated database
- * (e.g. `prisma db push` against daktari_test) to enable. Skipped otherwise.
+ * Gated on TEST_DATABASE_URL; skipped otherwise. `pnpm test:integration`
+ * (scripts/test-integration.mjs) sets it up end to end.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
@@ -20,10 +20,9 @@ const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 if (!TEST_DATABASE_URL) {
   console.warn(
     '[integration] TEST_DATABASE_URL is not set — skipping API integration tests. ' +
-      'To run them against the repo-local portable Postgres (.local/pg16, no Docker): ' +
-      '`pnpm db:start` (creates daktari_test), push the schema into daktari_test ' +
-      '(DATABASE_URL=<test url> pnpm db:push), then set ' +
-      'TEST_DATABASE_URL=postgresql://daktari:daktari@localhost:5432/daktari_test. See README.',
+      'Run `pnpm test:integration` from the repo root: it starts the repo-local portable ' +
+      'Postgres (.local/pg16, no Docker), creates daktari_test if missing, pushes the schema ' +
+      'and runs this suite with TEST_DATABASE_URL from .env.test. See README.',
   );
 }
 
