@@ -14,21 +14,90 @@ a single API call), the older harness still exists at
 
 ---
 
-## 0. Bring the stack up
+## Before the smoke test (device checklist)
 
-Three processes, three terminals.
+Do these once, in order, before handing a phone to anyone.
+
+**1. Keys in the root `.env`.** Blank means "local fake" — fine for a dry run,
+but the real device test needs:
+
+| Key | Needed for | If blank |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | Swahili AI screening | Screening answers 503 `AI_NOT_CONFIGURED` (deliberate — no fake triage) |
+| `DAILY_CO_API_KEY` | Real video/audio calls | `FakeVideo` — the call screen opens but never connects |
+| `AZAMPAY_*` | Real mobile-money payments | `FakePayments` — use the dev flip in step 3 below (fine for the smoke test) |
+| `SMS_API_KEY` | Real OTP SMS | `ConsoleSms` — the OTP prints in the API terminal (fine for the smoke test) |
+
+**2. Start Postgres, the API and the web portal** (three terminals, repo root):
 
 ```powershell
-# 1. PostgreSQL must be running and migrated
-pnpm --filter @daktari/db db:generate
-pnpm --filter @daktari/db db:seed        # realistic Tanzanian test data
+# Terminal 1 — database (portable Postgres in .local/pg16; no Docker)
+pnpm db:start        # starts it; creates daktari_dev + daktari_test if missing
+pnpm db:push         # schema → daktari_dev
+pnpm db:seed         # seeded admin + 4 APPROVED doctors (see README "Seeded logins")
+pnpm dev:doctor      # environment self-check: every line should PASS
 
-# 2. API (also creates the partial booking index at startup)
-pnpm --filter @daktari/api-server dev    # http://localhost:4000
+# Terminal 2 — API on 0.0.0.0:4000 (reachable over the LAN)
+pnpm --filter @daktari/api-server dev
 
-# 3. Web portal
-pnpm --filter @daktari/web dev           # http://localhost:3000
+# Terminal 3 — web portal on http://localhost:3000 (doctor + admin use it on the PC)
+pnpm --filter @daktari/web dev
 ```
+
+**3. Run the preflight** (with the API running):
+
+```powershell
+pnpm smoke:check
+```
+
+It lists which provider keys are set (never their values), checks `/health`
+and `/health/ready`, sends one tiny Anthropic request if that key is set, and
+creates + deletes a test Daily room if that key is set. Everything you need
+must say `PASS` before going further.
+
+**4. Build the EAS development build** (once per native change — not per IP
+change). Expo Go cannot run this app (native Daily/WebRTC modules).
+
+```powershell
+cd apps/mobile
+pnpm dlx eas-cli@latest login
+pnpm dlx eas-cli@latest build --profile development --platform android
+```
+
+When the cloud build finishes, open its URL on the phone and install the APK.
+
+**5. Point the phone at the PC's LAN IP.**
+
+```powershell
+ipconfig     # IPv4 address of the Wi-Fi adapter, e.g. 192.168.0.100
+```
+
+- Put `EXPO_PUBLIC_API_URL=http://<that IP>:4000` in `apps/mobile/.env`. If it
+  is missing or not an `http(s)://` URL, the app shows a bilingual "app is
+  misconfigured" screen — there is no localhost fallback.
+- Phone and PC on the **same Wi-Fi** (not a guest network that isolates
+  clients).
+- Windows Firewall must allow inbound TCP **4000** (API) and **8081** (Metro).
+  When Windows asks whether to allow Node.js on private networks, say **Allow**.
+- Check from the phone's browser: `http://<that IP>:4000/health` must show
+  `{"status":"ok"}`.
+- Start Metro and open the dev build on the phone (it connects to Metro, which
+  serves the JS with the URL baked in):
+
+```powershell
+cd apps/mobile
+npx expo start --dev-client -c
+```
+
+The IP is read when Metro bundles, so after an IP change edit
+`apps/mobile/.env` and restart Metro with `-c`; no rebuild needed.
+
+---
+
+## 0. Bring the stack up
+
+Same commands as checklist step 2 above: `pnpm db:start`, `pnpm db:push`,
+`pnpm db:seed`, then the API and the web portal in their own terminals.
 
 For the phone to reach the API, both must be on the same Wi-Fi and the mobile
 app's `EXPO_PUBLIC_API_URL` must point at your machine's LAN IP (not
@@ -43,7 +112,7 @@ app's `EXPO_PUBLIC_API_URL` must point at your machine's LAN IP (not
 | Role | Where it comes from |
 | --- | --- |
 | Platform admin | Seeded (`PLATFORM_ADMIN`). Signs in at the portal. |
-| Doctor | Register through the portal's doctor registration or the seed, then verify in step 1. |
+| Doctor | **The portal has no doctor registration yet** (planned). For the smoke test use a seeded doctor — `pnpm db:seed` creates four, already `APPROVED` (README "Seeded logins"), so step 1 can be skipped. To exercise verification itself, register a doctor via the API (`POST /api/v1/doctors/register`) and upload documents (`POST /api/v1/doctors/me/documents`); [`dev-doctor-flow.md`](./dev-doctor-flow.md) has the scripted doctor-side calls. (`pnpm dev:doctor` is the environment self-check, not a doctor-creation script.) |
 | Patient | Register in the mobile app (real OTP flow; the dev SMS adapter prints the code to the API console). |
 
 ---
