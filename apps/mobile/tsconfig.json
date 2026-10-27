@@ -1,5 +1,8 @@
 {
-  "extends": ["../../tsconfig.base.json", "expo/tsconfig.base"],
+  "extends": [
+    "../../tsconfig.base.json",
+    "expo/tsconfig.base"
+  ],
   "compilerOptions": {
     "noEmit": true,
     "declaration": false,
@@ -8,7 +11,13 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["jest"]
+    "types": [
+      "jest",
+      "expo/types"
+    ]
   },
-  "include": ["app", "src", "expo-env.d.ts"]
+  "include": [
+    "app",
+    "src"
+  ]
 }
