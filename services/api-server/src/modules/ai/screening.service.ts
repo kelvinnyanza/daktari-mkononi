@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AIScreeningResult, Patient, TriageLevel } from '@daktari/db';
 import { decryptHealthData, encryptHealthData } from '@daktari/encryption';
-import { AiOutputInvalidError, AiProviderError, type AiPort } from '@daktari/ai';
+import { AiOutputInvalidError, AiProviderError, type AIProvider } from '@daktari/ai';
 import { triageCheckSchema, type TriageCheck } from '@daktari/schemas';
 import { ApiError, msg } from '../../lib/errors.js';
 import type {
@@ -84,7 +84,7 @@ export interface ScreeningServiceDeps {
    * stub that answers medical triage plausibly is more dangerous than one that
    * is plainly unavailable, so screening reports 503 instead.
    */
-  ai: AiPort | null;
+  ai: AIProvider | null;
   auditLogs: AuditLogPort;
 }
 
@@ -96,7 +96,7 @@ export class ScreeningService {
   ) {}
 
   /** Guards every entry point that would reach the model. */
-  private requireAi(): AiPort {
+  private requireAi(): AIProvider {
     if (this.deps.ai === null) {
       throw new ApiError(
         503,

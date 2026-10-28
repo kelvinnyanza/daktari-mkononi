@@ -6,7 +6,7 @@ import {
   type AiResponse,
 } from './port.js';
 
-export const DEFAULT_AI_MODEL = 'claude-sonnet-4-6';
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface AnthropicProviderOptions {
@@ -19,13 +19,14 @@ export interface AnthropicProviderOptions {
 }
 
 /**
- * Anthropic implementation of AiPort. Typed errors distinguish
+ * Anthropic implementation of AIProvider. Typed errors distinguish
  * RATE_LIMITED / TIMEOUT / PROVIDER_ERROR so the screening layer can degrade
  * gracefully without string-matching provider messages.
  */
 export class AnthropicProvider extends BaseAi {
+  readonly name = 'anthropic' as const;
+  readonly model: string;
   private readonly client: Anthropic;
-  private readonly model: string;
 
   constructor(options: AnthropicProviderOptions) {
     super();
@@ -39,7 +40,7 @@ export class AnthropicProvider extends BaseAi {
         timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS, // milliseconds in the TS SDK
         maxRetries: 1,
       });
-    this.model = options.model ?? DEFAULT_AI_MODEL;
+    this.model = options.model ?? DEFAULT_ANTHROPIC_MODEL;
   }
 
   async complete(request: AiRequest): Promise<AiResponse> {

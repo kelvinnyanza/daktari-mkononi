@@ -56,7 +56,7 @@ import type {
 import type { SmsPort } from '@daktari/notifications';
 import type { StoragePort } from '@daktari/storage';
 import type { VideoPort } from '@daktari/video';
-import type { AiPort } from '@daktari/ai';
+import type { AIProvider } from '@daktari/ai';
 import type { MobileMoneyPort } from '@daktari/payments';
 import type { PubSubPort } from './pubsub.js';
 
@@ -321,7 +321,7 @@ export interface AppDeps {
   medicalRecords: MedicalRecordRepoPort;
   ratings: RatingRepoPort;
   screenings: ScreeningRepoPort;
-  ai: AiPort | null;
+  ai: AIProvider | null;
   paymentsRepo: PaymentRepoPort;
   doctorPayments: DoctorPaymentRepoPort;
   mobileMoney: MobileMoneyPort;

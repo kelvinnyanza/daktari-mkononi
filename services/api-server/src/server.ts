@@ -26,7 +26,7 @@ import {
   sessionRepository,
   userRepository,
 } from '@daktari/db';
-import { AnthropicProvider } from '@daktari/ai';
+import { createAiProvider } from '@daktari/ai';
 import { AzamPayProvider, FakePayments, type MobileMoneyPort } from '@daktari/payments';
 import { AfricasTalkingSms, ConsoleSms, type SmsPort } from '@daktari/notifications';
 import { LocalDiskStorage, S3Storage, type StoragePort } from '@daktari/storage';
@@ -132,10 +132,11 @@ async function main(): Promise<void> {
       // No key ⇒ no AI. Deliberately NOT faked: a stub that answers medical
       // triage plausibly is more dangerous than one that is plainly absent,
       // so the screening endpoints return 503 AI_NOT_CONFIGURED instead.
-      ai:
-        env.ANTHROPIC_API_KEY === undefined
-          ? null
-          : new AnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY, model: env.AI_MODEL }),
+      ai: createAiProvider({
+        provider: 'anthropic',
+        model: env.AI_MODEL,
+        anthropicApiKey: env.ANTHROPIC_API_KEY,
+      }),
       paymentsRepo: paymentRepository,
       doctorPayments: doctorPaymentRepository,
       mobileMoney: createMobileMoney(env),

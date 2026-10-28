@@ -56,7 +56,19 @@ export class AiOutputInvalidError extends Error {
   }
 }
 
-export interface AiPort {
+/** Which backend answers. `fake` is dev-only (DevFakeAi) or the scripted test double. */
+export type AiProviderName = 'anthropic' | 'openai' | 'fake';
+
+/**
+ * The one interface the screening service talks to. Prompts, safety rules
+ * (emergency pre-screen, 112/115, output gate) and the structured-output
+ * retry all live ABOVE this line, so swapping the provider cannot change them.
+ */
+export interface AIProvider {
+  /** Backend identity — for smoke checks and logs, never for branching. */
+  readonly name: AiProviderName;
+  /** Concrete model id sent to the backend. */
+  readonly model: string;
   complete(request: AiRequest): Promise<AiResponse>;
   /**
    * Demand JSON-only output, parse it, and validate against the schema. On a
@@ -84,7 +96,9 @@ export function extractJson(text: string): string {
  * flow (JSON demand → parse → validate → one retry with errors) is identical
  * for every provider, so it lives here.
  */
-export abstract class BaseAi implements AiPort {
+export abstract class BaseAi implements AIProvider {
+  abstract readonly name: AiProviderName;
+  abstract readonly model: string;
   abstract complete(request: AiRequest): Promise<AiResponse>;
 
   async completeStructured<T>(

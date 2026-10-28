@@ -5,11 +5,13 @@ type ScriptEntry =
   | { kind: 'error'; error: AiProviderError };
 
 /**
- * Scripted AiPort for tests: enqueue responses, assert on recorded requests.
+ * Scripted AIProvider for tests: enqueue responses, assert on recorded requests.
  * completeStructured runs the REAL retry logic from BaseAi over these scripts,
  * so structured-output tests exercise the production parse/retry path.
  */
 export class FakeAi extends BaseAi {
+  readonly name = 'fake' as const;
+  readonly model = 'scripted';
   /** Every request passed to complete(), in order — including structured retries. */
   readonly requests: AiRequest[] = [];
   private readonly script: ScriptEntry[] = [];
