@@ -159,6 +159,14 @@ export class OpenAiProvider extends BaseAi {
 
   private toTypedError(error: unknown): AiProviderError {
     if (error instanceof AiProviderError) return error;
+    // OpenAI reports an exhausted balance as a 429 too, but it is a billing
+    // state, not back-pressure: retrying later will not help.
+    if (
+      error instanceof OpenAI.RateLimitError &&
+      (error.code === 'insufficient_quota' || error.type === 'insufficient_quota')
+    ) {
+      return new AiProviderError('PROVIDER_ERROR', 'provider quota exhausted (billing): insufficient_quota', error);
+    }
     if (error instanceof OpenAI.RateLimitError) {
       return new AiProviderError('RATE_LIMITED', 'provider rate limit exceeded', error);
     }

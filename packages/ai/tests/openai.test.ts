@@ -164,6 +164,20 @@ describe('OpenAiProvider.complete', () => {
     expect(error.message).not.toMatch(/sk-/);
   });
 
+  it('insufficient_quota (a 429) is a billing PROVIDER_ERROR, not a transient RATE_LIMITED', async () => {
+    const quota = new OpenAI.RateLimitError(
+      429,
+      { type: 'insufficient_quota', code: 'insufficient_quota' },
+      'You exceeded your current quota',
+      new Headers(),
+    );
+    const { client } = stubClient([quota]);
+    await expect(new OpenAiProvider({ apiKey: undefined, client }).complete(request)).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+      message: expect.stringMatching(/insufficient_quota/) as unknown,
+    });
+  });
+
   it('structured output runs the shared parse → one retry → AiOutputInvalidError path', async () => {
     const schema = z.object({ triageComplete: z.boolean() });
     const { client, calls } = stubClient([ok('not json'), ok('{"triageComplete":"yes"}')]);
