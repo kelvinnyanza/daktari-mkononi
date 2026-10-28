@@ -4,7 +4,7 @@
  * after FAILED payments, refund status lines, and the post-consultation
  * rating flow for COMPLETED appointments.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -17,7 +17,7 @@ import {
   TextField,
   Title,
 } from '../../../src/components/ui';
-import { pollInterval, mnoWalletLabel } from '../../../src/features/payments/polling';
+import { leftPendingPayment, pollInterval, mnoWalletLabel } from '../../../src/features/payments/polling';
 import { canEnterWaitingRoom } from '../../../src/features/consultation/waiting-room';
 import { useT } from '../../../src/i18n';
 import { eatDateTimeLabel, formatCountdown, secondsUntil } from '../../../src/lib/datetime';
@@ -67,6 +67,17 @@ export default function AppointmentDetail(): React.JSX.Element {
     enabled: appointment !== undefined && appointment.paymentIntent === 'MOBILE_MONEY',
   });
   const payment = payments.data?.items.find((item) => item.appointmentId === id);
+
+  // The poll sees CONFIRMED first; refetch payments then, or the cached
+  // PROCESSING line keeps the screen looking stuck on the payment step.
+  const lastStatus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const status = appointment?.status;
+    if (leftPendingPayment(lastStatus.current, status)) {
+      void queryClient.invalidateQueries({ queryKey: ['payments'] });
+    }
+    if (status !== undefined) lastStatus.current = status;
+  }, [appointment?.status, queryClient]);
 
   const cancel = useMutation({
     mutationFn: () => appointmentApi.cancel(id ?? '', reason.trim() || 'imefutwa na mgonjwa'),

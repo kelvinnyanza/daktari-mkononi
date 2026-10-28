@@ -1,4 +1,4 @@
-import { POLL_INTERVAL_MS, mnoWalletLabel, pollInterval } from './polling';
+import { POLL_INTERVAL_MS, leftPendingPayment, mnoWalletLabel, pollInterval } from './polling';
 
 describe('payment polling decisions', () => {
   it('polls every 5s only while PENDING_PAYMENT and focused', () => {
@@ -17,6 +17,15 @@ describe('payment polling decisions', () => {
 
   it('unknown/loading status does not poll', () => {
     expect(pollInterval(undefined, true)).toBe(false);
+  });
+
+  it('flags the PENDING_PAYMENT → other transition so payments refetch', () => {
+    expect(leftPendingPayment('PENDING_PAYMENT', 'CONFIRMED')).toBe(true);
+    expect(leftPendingPayment('PENDING_PAYMENT', 'CANCELLED')).toBe(true);
+    expect(leftPendingPayment('PENDING_PAYMENT', 'PENDING_PAYMENT')).toBe(false);
+    expect(leftPendingPayment('PENDING_PAYMENT', undefined)).toBe(false); // refetch in flight
+    expect(leftPendingPayment(undefined, 'CONFIRMED')).toBe(false); // first load
+    expect(leftPendingPayment('CONFIRMED', 'COMPLETED')).toBe(false);
   });
 });
 
