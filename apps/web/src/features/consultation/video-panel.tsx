@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n';
 import { api } from '@/lib/api';
+import { dailyErrorDetail } from './daily-error';
 
 /**
  * Daily's **prebuilt** call UI in an iframe.
@@ -51,8 +52,13 @@ export function VideoPanel({ consultationId }: { consultationId: string }) {
       frameRef.current = frame;
       await frame.join({ url: roomUrl, token: meetingToken });
       setJoined(true);
-    } catch {
-      setError(t('common.error'));
+    } catch (caught) {
+      // A failed join leaves the call object alive; without destroying it the
+      // next click throws "Duplicate DailyIframe instances are not allowed".
+      frameRef.current?.destroy();
+      frameRef.current = null;
+      const detail = dailyErrorDetail(caught);
+      setError(detail === null ? t('common.error') : `${t('common.error')} (${detail})`);
     }
   };
 
