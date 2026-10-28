@@ -8,7 +8,7 @@ import { createAiProvider } from '../src/factory.js';
 const triageCheckSchema = z
   .object({
     triageComplete: z.boolean(),
-    triageLevel: z.enum(['SELF_CARE', 'TELECONSULTATION', 'IN_PERSON', 'EMERGENCY']).optional(),
+    triageLevel: z.enum(['SELF_CARE', 'TELECONSULTATION', 'IN_PERSON_VISIT', 'EMERGENCY']).optional(),
     urgencyScore: z.number().min(0).max(10),
     suggestedSpecialty: z.string().max(100).optional(),
     confidence: z.number().min(0).max(1),

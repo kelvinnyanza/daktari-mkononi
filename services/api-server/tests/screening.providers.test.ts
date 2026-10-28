@@ -1,9 +1,16 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { OpenAiProvider, type OpenAiProviderOptions } from '@daktari/ai';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  DEV_FAKE_MARKER,
+  DevFakeAi,
+  OpenAiProvider,
+  type AIProvider,
+  type OpenAiProviderOptions,
+} from '@daktari/ai';
 import { applyTestEnv } from './helpers/env.js';
 import { makeFakeDeps, type FakeDeps } from './helpers/fakes.js';
 import { SlidingWindowLimiter } from '../src/lib/rate-limiter.js';
-import { ScreeningService } from '../src/modules/ai/screening.service.js';
+import { MESSAGES_PER_HOUR, ScreeningService } from '../src/modules/ai/screening.service.js';
+import { buildScreeningSystemPrompt, toAgeBand } from '../src/modules/ai/prompts.js';
 
 /**
  * ScreeningService over REAL provider adapters (SDK client stubbed), proving
@@ -65,7 +72,7 @@ beforeEach(() => {
   limiter = new SlidingWindowLimiter(() => NOW);
 });
 
-function serviceWith(ai: FakeDeps['ai'] | OpenAiProvider): ScreeningService {
+function serviceWith(ai: AIProvider): ScreeningService {
   return new ScreeningService({ ...deps, ai }, limiter, () => NOW);
 }
 
@@ -117,5 +124,117 @@ describe('OpenAI provider through ScreeningService', () => {
     await service.handleMessage(user.id, sessionId, 'Nina kikohozi');
     expect(calls).toHaveLength(2);
     expect(calls.every((params) => params.store === false)).toBe(true);
+  });
+});
+
+/**
+ * The emergency keyword pre-screen is provider-independent: it runs BEFORE the
+ * rate limit and BEFORE any provider call, whichever provider is selected.
+ */
+describe.each([
+  {
+    label: 'openai',
+    build: () => {
+      const { client, calls } = stubOpenAiClient([]);
+      return { ai: new OpenAiProvider({ apiKey: undefined, client }), providerCalls: () => calls.length };
+    },
+  },
+  {
+    label: 'fake',
+    build: () => {
+      const ai = new DevFakeAi();
+      const spy = vi.spyOn(ai, 'complete');
+      return { ai, providerCalls: () => spy.mock.calls.length };
+    },
+  },
+])('emergency pre-screen with AI_PROVIDER=$label', ({ build }) => {
+  it.each([
+    ['Swahili', 'Nina maumivu ya kifua na jasho jingi'],
+    ['English', 'I have severe chest pain since morning'],
+  ])('%s emergency → 112/115 completion with zero provider calls', async (_lang, message) => {
+    const { ai, providerCalls } = build();
+    const service = serviceWith(ai);
+    const { user } = deps.seedPatient();
+    const { sessionId } = await service.startSession(user.id);
+
+    const reply = await service.handleMessage(user.id, sessionId, message);
+    expect(providerCalls()).toBe(0);
+    expect(reply.status).toBe('COMPLETED');
+    expect(reply.triage?.triageLevel).toBe('EMERGENCY');
+    expect(reply.reply).toContain('112');
+    expect(reply.reply).toContain('115');
+    expect(deps.state.screenings.get(sessionId)!.escalatedToEmergency).toBe(true);
+  });
+
+  it('runs BEFORE the rate limit: an exhausted patient still gets 112/115, never a 429', async () => {
+    const { ai, providerCalls } = build();
+    const service = serviceWith(ai);
+    const { user, patient } = deps.seedPatient();
+    const { sessionId } = await service.startSession(user.id);
+    for (let i = 0; i < MESSAGES_PER_HOUR; i += 1) {
+      limiter.tryAcquire(`screening-msg:${patient.id}`, MESSAGES_PER_HOUR, 60 * 60_000);
+    }
+
+    const reply = await service.handleMessage(user.id, sessionId, 'maumivu ya kifua');
+    expect(reply.status).toBe('COMPLETED');
+    expect(reply.triage?.triageLevel).toBe('EMERGENCY');
+    expect(reply.reply).toContain('112');
+    expect(providerCalls()).toBe(0);
+  });
+});
+
+describe('one source of truth for the system prompt', () => {
+  it('every provider receives the identical Swahili prompt with the 112/115 rule', async () => {
+    const { client, calls } = stubOpenAiClient([
+      { output_text: 'Pole.' },
+      { output_text: INCOMPLETE_TRIAGE },
+    ]);
+    const openai = new OpenAiProvider({ apiKey: undefined, client });
+    const fake = new DevFakeAi();
+    const fakeSpy = vi.spyOn(fake, 'complete');
+    const { user, patient } = deps.seedPatient();
+
+    for (const ai of [openai, fake]) {
+      const service = serviceWith(ai);
+      const { sessionId } = await service.startSession(user.id);
+      await service.handleMessage(user.id, sessionId, 'Nina homa');
+    }
+
+    const expected = buildScreeningSystemPrompt('sw', {
+      ageBand: toAgeBand(patient.dateOfBirth, NOW),
+      gender: patient.gender,
+      chronicConditions: patient.chronicConditions,
+      allergies: patient.allergies,
+    });
+    const openaiSystem = calls[0]!.instructions as string;
+    const fakeSystem = fakeSpy.mock.calls[0]![0].system;
+    // Both providers get exactly the prompt prompts.ts builds — nothing provider-specific.
+    expect(openaiSystem).toBe(expected);
+    expect(fakeSystem).toBe(expected);
+    expect(openaiSystem).toContain('112');
+    expect(openaiSystem).toContain('115');
+    expect(openaiSystem).not.toMatch(/\b(999|911|114)\b/);
+  });
+});
+
+describe('DevFakeAi through ScreeningService', () => {
+  it('[JARIBIO] replies, then a schema-valid TELECONSULTATION result with suggested doctors', async () => {
+    const service = serviceWith(new DevFakeAi());
+    const { user } = deps.seedPatient();
+    const { sessionId } = await service.startSession(user.id);
+
+    const first = await service.handleMessage(user.id, sessionId, 'Nina homa');
+    expect(first.status).toBe('ACTIVE');
+    expect(first.reply.startsWith(DEV_FAKE_MARKER)).toBe(true);
+
+    const second = await service.handleMessage(user.id, sessionId, 'Tangu jana');
+    expect(second.status).toBe('COMPLETED');
+    expect(second.reply.startsWith(DEV_FAKE_MARKER)).toBe(true);
+    expect(second.triage).toMatchObject({
+      triageLevel: 'TELECONSULTATION',
+      recommendedSpecialty: 'GENERAL_PRACTICE',
+    });
+    expect(second.suggestedDoctors).toBeDefined();
+    expect(deps.state.screenings.get(sessionId)!.tokensUsed).toBeGreaterThan(0);
   });
 });
