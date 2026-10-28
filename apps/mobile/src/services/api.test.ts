@@ -119,6 +119,20 @@ describe('api client', () => {
     unsubscribe();
   });
 
+  it('sends content-type: application/json only when there is a body', async () => {
+    const fetchMock = jest.fn(async () => jsonResponse(200, { ok: true }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    // Body-less POST (ws ticket): an empty application/json body is a 400.
+    await apiRequest('/api/v1/ws/ticket', { method: 'POST' });
+    await apiRequest('/api/v1/appointments/x/cancel', { method: 'POST', body: { reason: 'r' } });
+
+    const headersOf = (call: number) =>
+      (fetchMock.mock.calls[call] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+    expect(headersOf(0)['content-type']).toBeUndefined();
+    expect(headersOf(1)['content-type']).toBe('application/json');
+  });
+
   it('parses the bilingual envelope into a typed ApiError', async () => {
     global.fetch = jest.fn(async () =>
       jsonResponse(409, {

@@ -125,12 +125,15 @@ export interface RequestOptions {
 
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = {
-    'content-type': 'application/json',
     // Sent on EVERY request, not just /login: it selects the cookie strategy
     // on login, and /refresh rejects a cookie-authenticated call without it
     // (the second CSRF layer — see CLAUDE.md).
     'x-daktari-client': 'web',
   };
+  // Only when there IS a body: Fastify answers 400 to `application/json` with
+  // an empty body, which broke every body-less POST (ws/ticket, complete,
+  // claim, logout).
+  if (options.body !== undefined) headers['content-type'] = 'application/json';
   if (!options.anonymous && accessToken !== null) {
     headers['authorization'] = `Bearer ${accessToken}`;
   }

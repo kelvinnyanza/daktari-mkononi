@@ -119,7 +119,10 @@ export interface RequestOptions {
 }
 
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const headers: Record<string, string> = {};
+  // Only when there IS a body: Fastify answers 400 to `application/json` with
+  // an empty body, which broke every body-less POST (ws/ticket, pay, logout).
+  if (options.body !== undefined) headers['content-type'] = 'application/json';
   if (!options.anonymous && accessToken !== null) {
     headers.authorization = `Bearer ${accessToken}`;
   }
