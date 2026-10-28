@@ -23,7 +23,7 @@ but the real device test needs:
 
 | Key | Needed for | If blank |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Swahili AI screening | Screening answers 503 `AI_NOT_CONFIGURED` (deliberate — no fake triage) |
+| `AI_PROVIDER` + its key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`) | Swahili AI screening | Screening answers 503 `AI_NOT_CONFIGURED` (deliberate — no fake triage). See "Switching AI provider" below |
 | `DAILY_CO_API_KEY` | Real video/audio calls | `FakeVideo` — the call screen opens but never connects |
 | `AZAMPAY_*` | Real mobile-money payments | `FakePayments` — use the dev flip in step 3 below (fine for the smoke test) |
 | `SMS_API_KEY` | Real OTP SMS | `ConsoleSms` — the OTP prints in the API terminal (fine for the smoke test) |
@@ -51,9 +51,30 @@ pnpm smoke:check
 ```
 
 It lists which provider keys are set (never their values), checks `/health`
-and `/health/ready`, sends one tiny Anthropic request if that key is set, and
+and `/health/ready`, sends one tiny request to the provider `AI_PROVIDER`
+selects (printing provider + model + PASS/FAIL) if its key is set, and
 creates + deletes a test Daily room if that key is set. Everything you need
 must say `PASS` before going further.
+
+### Switching AI provider
+
+Screening runs on Anthropic by default. While the Anthropic account is
+pending, it can run on OpenAI; switching back is the same one line.
+
+1. Keep **both** keys in `.env` and leave `AI_MODEL=` blank (each provider then
+   uses its own default: `claude-sonnet-4-6` / `gpt-6.1-sol`).
+2. Test the target before switching (PowerShell):
+   `$env:AI_PROVIDER='openai'; pnpm smoke:check; Remove-Item Env:AI_PROVIDER`
+   It must print `[PASS] provider=openai model=gpt-6.1-sol`.
+3. Set `AI_PROVIDER=openai` (or back to `anthropic`) in `.env` and restart the
+   API. Its startup log shows `"aiProvider":"openai","aiModel":"gpt-6.1-sol"`.
+
+`AI_PROVIDER=fake` gives canned `[JARIBIO]` replies for a dry run without any
+key; it is refused in production and is not a substitute for the device test.
+A `FAIL … insufficient_quota` or `… credit` line means billing on that
+provider's account, not a code problem. Safety behaviour (emergency keywords →
+112/115 before any AI call, rate limits, output gate) is identical for every
+provider.
 
 **4. Build the EAS development build** (once per native change — not per IP
 change). Expo Go cannot run this app (native Daily/WebRTC modules).

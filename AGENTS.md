@@ -127,6 +127,32 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
   indexes, so `ensureBookingSlotIndex()` (exported by `@daktari/db`) creates it
   at server startup / integration-test setup, after `prisma db push`.
 
+## Switching AI provider
+
+- `AI_PROVIDER = anthropic | openai | fake` (default `anthropic`). Anthropic is
+  the intended provider; OpenAI is a **temporary** stand-in while Anthropic
+  account verification is pending. Never delete or weaken `AnthropicProvider`.
+- Keep both `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` set and **`AI_MODEL`
+  blank** (blank ⇒ the provider's default: `claude-sonnet-4-6` /
+  `gpt-6.1-sol`); a switch is then one variable plus an API restart. A
+  `claude-*` model with `openai` (or the reverse) fails env validation.
+- Everything provider-independent sits above the `AIProvider` interface
+  (`@daktari/ai`): the Swahili prompts and 112/115 rules (`prompts.ts`, one
+  source of truth), the emergency keyword pre-screen (runs before the rate
+  limit and before any provider call), caps, output gate, and the
+  structured-output parse/retry against `triageCheckSchema`. Adapters only
+  translate a request; `server.ts` builds one via `createAiProvider`.
+- The OpenAI adapter uses the Responses API with **`store: false`** (that API
+  defaults to retaining responses) and a per-model parameter profile
+  (`openAiModelProfile`): models without reasoning effort `none` get effort
+  `low`, no `temperature` (rejected while reasoning), and reasoning-token
+  headroom on `max_output_tokens`. A new OpenAI model id needs a profile row.
+- Verify with `AI_PROVIDER=openai AI_MODEL= pnpm smoke:check` before editing
+  `.env`; the API logs `aiProvider`/`aiModel` at startup.
+- Changing the AI vendor changes who processes patient symptoms (PDPA
+  processor, cross-border transfer). Consent/privacy wording is a product/legal
+  decision — do not edit it as part of a provider switch.
+
 ## Stack
 
 - Turborepo + pnpm workspaces (`apps/*`, `packages/*`, `services/*`)
@@ -176,10 +202,13 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
 - **Unset provider ⇒ fake, except AI.** No key selects `FakePayments` /
   `ConsoleSms` / `FakeVideo` / `LocalDiskStorage`, and no `REDIS_URL` means an
   in-memory rate limiter with `/health/ready` reporting redis `skipped`.
-  `ANTHROPIC_API_KEY` is the deliberate exception: unset makes screening throw
-  503 `AI_NOT_CONFIGURED` (`ScreeningService.requireAi`), because a stub that
-  answers medical triage plausibly is more dangerous than one that is plainly
-  unavailable.
+  The AI key is the deliberate exception: the key for the selected
+  `AI_PROVIDER` unset makes screening throw 503 `AI_NOT_CONFIGURED`
+  (`ScreeningService.requireAi`), because a stub that answers medical triage
+  plausibly is more dangerous than one that is plainly unavailable. There is
+  never an implicit fake or a fallback to the other provider; `DevFakeAi` exists
+  only when chosen explicitly (`AI_PROVIDER=fake`), marks every reply
+  `[JARIBIO]`, and `assertProductionReady` refuses it.
 - **One `.env`, at the repo root**, loaded explicitly by path in every entry
   point (`services/api-server/src/lib/load-env.ts` imported first in
   `server.ts`, `apps/web/next.config.mjs`, `packages/db/prisma.config.ts` and

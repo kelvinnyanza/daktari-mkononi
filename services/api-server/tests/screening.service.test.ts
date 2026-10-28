@@ -497,7 +497,7 @@ describe('access control + booking link-up', () => {
 });
 
 /**
- * ANTHROPIC_API_KEY unset. Screening is the one capability with NO dev fake:
+ * Selected AI provider's key unset. Screening is the one capability with NO implicit dev fake:
  * a stub that answers medical triage plausibly is more dangerous than one that
  * is plainly unavailable, so the endpoints must refuse rather than degrade.
  */

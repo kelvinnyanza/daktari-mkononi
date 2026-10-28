@@ -80,9 +80,10 @@ export interface ScreeningServiceDeps {
   appointments: AppointmentRepoPort;
   users: UserRepoPort;
   /**
-   * null when ANTHROPIC_API_KEY is unset. There is deliberately no fake: a
-   * stub that answers medical triage plausibly is more dangerous than one that
-   * is plainly unavailable, so screening reports 503 instead.
+   * null when the selected AI_PROVIDER has no key. There is deliberately no
+   * implicit fake: a stub that answers medical triage plausibly is more
+   * dangerous than one that is plainly unavailable, so screening reports 503
+   * instead. (AI_PROVIDER=fake is an explicit, dev-only, [JARIBIO]-marked opt-in.)
    */
   ai: AIProvider | null;
   auditLogs: AuditLogPort;

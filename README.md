@@ -85,7 +85,7 @@ fake. You can develop the whole product this way.
 | Video | `FakeVideo` — rooms and tokens are stubs, no real call is placed | `DAILY_CO_API_KEY` |
 | Document storage | Local disk under `STORAGE_ROOT` (`.storage`) | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` |
 | Rate limiting | In-memory (single process); `/health/ready` reports redis `skipped` | `REDIS_URL` |
-| **AI screening** | **503 `AI_NOT_CONFIGURED`** — deliberately *not* faked | `ANTHROPIC_API_KEY` |
+| **AI screening** | **503 `AI_NOT_CONFIGURED`** — deliberately *not* faked (opt-in dev fake: `AI_PROVIDER=fake`) | `AI_PROVIDER` + `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` |
 
 AI screening is the one capability with no fake. A stub that answers medical
 triage plausibly is more dangerous than one that is plainly unavailable, so the
@@ -205,5 +205,5 @@ requirement, so Android is the primary target here.
 | `pnpm db:start` fails to bind | Something else holds port 5432 — `pnpm db:status`, or stop the other server |
 | `db:push` says the database does not exist | `pnpm db:start` (it creates both databases) |
 | Login says the OTP is wrong | The code prints in the **API server console** (ConsoleSms), not by SMS |
-| Screening returns 503 `AI_NOT_CONFIGURED` | Expected without `ANTHROPIC_API_KEY`; everything else works |
+| Screening returns 503 `AI_NOT_CONFIGURED` | Expected without the key for `AI_PROVIDER`; everything else works |
 | Portal signs you out on reload | Expected only if the refresh cookie is gone; the access token is memory-only by design |
