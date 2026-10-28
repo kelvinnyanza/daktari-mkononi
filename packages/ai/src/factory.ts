@@ -1,4 +1,5 @@
 import { AnthropicProvider } from './anthropic.js';
+import { OpenAiProvider } from './openai.js';
 import type { AIProvider, AiProviderName } from './port.js';
 
 export interface AiProviderConfig {
@@ -6,6 +7,7 @@ export interface AiProviderConfig {
   /** env AI_MODEL; undefined ⇒ the selected provider's own default. */
   model?: string | undefined;
   anthropicApiKey?: string | undefined;
+  openaiApiKey?: string | undefined;
 }
 
 /**
@@ -24,6 +26,12 @@ export function createAiProvider(config: AiProviderConfig): AIProvider | null {
             ...(config.model !== undefined ? { model: config.model } : {}),
           });
     case 'openai':
+      return config.openaiApiKey === undefined
+        ? null
+        : new OpenAiProvider({
+            apiKey: config.openaiApiKey,
+            ...(config.model !== undefined ? { model: config.model } : {}),
+          });
     case 'fake':
       throw new Error(`AI provider "${config.provider}" is not implemented yet`);
   }
