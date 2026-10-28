@@ -26,8 +26,12 @@ export function findProductionAdapterOffenders(env: Env): string[] {
   if (env.APP_URL.includes('localhost')) offenders.push('APP_URL');
   if (env.API_URL.includes('localhost')) offenders.push('API_URL');
 
-  // AI screening — unset means every screening endpoint answers 503.
-  if (missing(env.ANTHROPIC_API_KEY)) offenders.push('ANTHROPIC_API_KEY');
+  // AI screening — the SELECTED provider's key; unset means every screening
+  // endpoint answers 503. The other provider's key is not required.
+  if (env.AI_PROVIDER === 'anthropic' && missing(env.ANTHROPIC_API_KEY)) {
+    offenders.push('ANTHROPIC_API_KEY');
+  }
+  if (env.AI_PROVIDER === 'openai' && missing(env.OPENAI_API_KEY)) offenders.push('OPENAI_API_KEY');
   // The dev fake answers canned [JARIBIO] text: never in front of real patients.
   if (env.AI_PROVIDER === 'fake') offenders.push('AI_PROVIDER');
 

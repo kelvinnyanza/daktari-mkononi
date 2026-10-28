@@ -80,12 +80,16 @@ FILE_SIGNING_SECRET=${secret(32)}
 # AzamPay unset  -> FakePayments; use the dev payment-flip endpoint
 #                   POST /api/v1/dev/payments/:appointmentId/complete
 # Daily.co unset -> FakeVideo: rooms and tokens are stubs, no real call.
-# Anthropic unset-> AI screening returns 503 AI_NOT_CONFIGURED. It is NOT
-#                   faked: a stub that answers medical triage plausibly is
-#                   more dangerous than one that is plainly unavailable.
-#                   Set a real key to exercise screening.
+# AI key unset   -> AI screening returns 503 AI_NOT_CONFIGURED. It is NOT
+#                   faked implicitly: a stub that answers medical triage
+#                   plausibly is more dangerous than one that is plainly
+#                   unavailable. Set the key for AI_PROVIDER (anthropic |
+#                   openai), or AI_PROVIDER=fake for canned "[JARIBIO]"
+#                   replies (dev only). AI_MODEL blank = provider default.
+AI_PROVIDER=anthropic
 ANTHROPIC_API_KEY=
-AI_MODEL=claude-sonnet-4-6
+OPENAI_API_KEY=
+AI_MODEL=
 
 SMS_API_KEY=
 AZAMPAY_APP_NAME=

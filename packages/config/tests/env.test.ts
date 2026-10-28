@@ -123,6 +123,8 @@ describe('loadEnv — requirement tiers', () => {
   it.each([
     'REDIS_URL',
     'ANTHROPIC_API_KEY',
+    'OPENAI_API_KEY',
+    'AI_MODEL',
     'AWS_ACCESS_KEY_ID',
     'AWS_SECRET_ACCESS_KEY',
     'SMS_API_KEY',
@@ -168,5 +170,47 @@ describe('loadEnv — requirement tiers', () => {
     expect(() => loadEnv({ ...validEnv, OTP_PEPPER: 'too-short' })).toThrowError(
       /OTP_PEPPER.*32/,
     );
+  });
+});
+
+describe('loadEnv — AI provider selection', () => {
+  it('defaults AI_PROVIDER to anthropic and leaves AI_MODEL to the provider', () => {
+    const env = loadEnv(minimalEnv);
+    expect(env.AI_PROVIDER).toBe('anthropic');
+    expect(env.AI_MODEL).toBeUndefined();
+  });
+
+  it.each(['anthropic', 'openai', 'fake'])('accepts AI_PROVIDER=%s', (provider) => {
+    expect(loadEnv({ ...minimalEnv, AI_PROVIDER: provider }).AI_PROVIDER).toBe(provider);
+  });
+
+  it('rejects an unknown AI_PROVIDER', () => {
+    expect(() => loadEnv({ ...minimalEnv, AI_PROVIDER: 'gemini' })).toThrowError(/AI_PROVIDER/);
+  });
+
+  it('a blank AI_MODEL means "provider default", not an empty model id', () => {
+    expect(loadEnv({ ...minimalEnv, AI_MODEL: '' }).AI_MODEL).toBeUndefined();
+  });
+
+  it('rejects a Claude model id when AI_PROVIDER=openai (the half-done switch)', () => {
+    expect(() =>
+      loadEnv({ ...minimalEnv, AI_PROVIDER: 'openai', AI_MODEL: 'claude-sonnet-4-6' }),
+    ).toThrowError(/AI_MODEL.*Anthropic model/);
+  });
+
+  it('rejects a non-Claude model id when AI_PROVIDER=anthropic', () => {
+    expect(() =>
+      loadEnv({ ...minimalEnv, AI_PROVIDER: 'anthropic', AI_MODEL: 'gpt-6.1-sol' }),
+    ).toThrowError(/AI_MODEL/);
+  });
+
+  it('accepts matching provider/model pairs, and ignores AI_MODEL for fake', () => {
+    expect(loadEnv({ ...minimalEnv, AI_PROVIDER: 'openai', AI_MODEL: 'gpt-6.1-terra' }).AI_MODEL).toBe(
+      'gpt-6.1-terra',
+    );
+    expect(
+      loadEnv({ ...minimalEnv, AI_PROVIDER: 'anthropic', AI_MODEL: 'claude-opus-4-1' }).AI_MODEL,
+    ).toBe('claude-opus-4-1');
+    expect(() => loadEnv({ ...minimalEnv, AI_PROVIDER: 'fake', AI_MODEL: 'anything' })).not.toThrow();
   });
 });

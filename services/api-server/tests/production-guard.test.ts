@@ -128,6 +128,20 @@ describe('production adapter guard', () => {
     expect(() => assertProductionReady(asProduction)).toThrow(ProductionReadinessError);
   });
 
+  it('requires only the SELECTED AI provider key', () => {
+    // anthropic (default): the Anthropic key is required, OpenAI's is not.
+    expect(findProductionAdapterOffenders(loadEnv(prodEnv))).toEqual([]);
+    const anthropicMissing = { ...loadEnv(prodEnv), ANTHROPIC_API_KEY: undefined };
+    expect(findProductionAdapterOffenders(anthropicMissing)).toEqual(['ANTHROPIC_API_KEY']);
+
+    // openai: the OpenAI key is required, Anthropic's is not.
+    const openai = loadEnv({ ...prodEnv, AI_PROVIDER: 'openai', OPENAI_API_KEY: 'sk-proj-prod' });
+    expect(findProductionAdapterOffenders({ ...openai, ANTHROPIC_API_KEY: undefined })).toEqual([]);
+    expect(findProductionAdapterOffenders({ ...openai, OPENAI_API_KEY: undefined })).toEqual([
+      'OPENAI_API_KEY',
+    ]);
+  });
+
   it('refuses the dev fake AI in production (AI_PROVIDER=fake)', () => {
     const env = loadEnv({ ...prodEnv, AI_PROVIDER: 'fake' });
     expect(findProductionAdapterOffenders(env)).toEqual(['AI_PROVIDER']);

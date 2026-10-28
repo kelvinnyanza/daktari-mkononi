@@ -21,10 +21,12 @@ const redisUrl = z
  * offenders at once. That split is what lets a developer boot with nothing but
  * a Postgres URL while production still refuses to start on console adapters.
  *
- * The one deliberate exception is ANTHROPIC_API_KEY: unset does NOT fall back
- * to a fake, because a fake medical triage that answers plausibly is more
- * dangerous than one that is plainly unavailable. Screening returns 503
- * AI_NOT_CONFIGURED instead.
+ * The one deliberate exception is the AI key: an unset key for the selected
+ * AI_PROVIDER does NOT fall back to a fake, because a fake medical triage that
+ * answers plausibly is more dangerous than one that is plainly unavailable.
+ * Screening returns 503 AI_NOT_CONFIGURED instead. The dev fake exists only
+ * when chosen explicitly (AI_PROVIDER=fake), is marked [JARIBIO] on every
+ * reply, and is refused in production.
  */
 export const envSchema = z.object({
   // ── Always required ───────────────────────────────────────────────────────
@@ -65,9 +67,15 @@ export const envSchema = z.object({
   // Which backend answers screening. `fake` is a dev-only canned [JARIBIO]
   // responder — the production guard refuses to boot with it.
   AI_PROVIDER: z.enum(['anthropic', 'openai', 'fake']).default('anthropic'),
-  // Unset ⇒ screening endpoints answer 503 AI_NOT_CONFIGURED. Never faked.
+  // The SELECTED provider's key unset ⇒ screening answers 503
+  // AI_NOT_CONFIGURED (never a silent fallback to the other provider). Both
+  // keys may be present at once — switching is then one variable.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  AI_MODEL: z.string().min(1).default('claude-sonnet-4-6'),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  // Unset ⇒ the selected provider's own default (claude-sonnet-4-6 /
+  // gpt-6.1-sol). Leave it blank so AI_PROVIDER alone switches backends; a
+  // model id belonging to the other provider is rejected below.
+  AI_MODEL: z.string().min(1).optional(),
 
   // ── Payments — Tanzania mobile money aggregator (TZS only) ────────────────
   // NOTE: PAYMENT_API_KEY / PAYMENT_API_SECRET / PAYMENT_CALLBACK_URL were
@@ -103,6 +111,27 @@ export const envSchema = z.object({
   // Reserved: validated so a typo is caught, not yet wired to a reporter.
   SENTRY_DSN: z.string().url().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+}).superRefine((value, ctx) => {
+  // Every Anthropic model id starts with "claude-"; nothing else does. Catches
+  // the one-variable switch that left AI_MODEL pointing at the old provider —
+  // which would otherwise surface only as a 404 on the first patient message.
+  const model = value.AI_MODEL;
+  if (model === undefined || value.AI_PROVIDER === 'fake') return;
+  const claudeModel = model.startsWith('claude-');
+  if (value.AI_PROVIDER === 'openai' && claudeModel) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['AI_MODEL'],
+      message: `"${model}" is an Anthropic model but AI_PROVIDER=openai — blank AI_MODEL to use the OpenAI default`,
+    });
+  }
+  if (value.AI_PROVIDER === 'anthropic' && !claudeModel) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['AI_MODEL'],
+      message: `"${model}" is not an Anthropic model but AI_PROVIDER=anthropic — blank AI_MODEL to use the Anthropic default`,
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

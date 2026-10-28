@@ -114,6 +114,19 @@ async function main(): Promise<void> {
   // Prisma cannot declare the partial unique index that arbitrates bookings.
   await ensureBookingSlotIndex();
 
+  // AI_PROVIDER picks the backend; its key unset ⇒ null ⇒ 503
+  // AI_NOT_CONFIGURED. Never an implicit fake or a fallback to the other
+  // provider: a stub that answers medical triage plausibly is more dangerous
+  // than one that is plainly absent. AI_PROVIDER=fake is an explicit dev-only
+  // choice, refused in production by the guard above.
+  const ai = createAiProvider({
+    provider: env.AI_PROVIDER,
+    model: env.AI_MODEL,
+    anthropicApiKey: env.ANTHROPIC_API_KEY,
+    openaiApiKey: env.OPENAI_API_KEY,
+    production: env.NODE_ENV === 'production',
+  });
+
   const { app, services } = await buildAppWithServices({
     deps: {
       users: userRepository,
@@ -129,14 +142,7 @@ async function main(): Promise<void> {
       medicalRecords: medicalRecordRepository,
       ratings: ratingRepository,
       screenings: screeningRepository,
-      // No key ⇒ no AI. Deliberately NOT faked: a stub that answers medical
-      // triage plausibly is more dangerous than one that is plainly absent,
-      // so the screening endpoints return 503 AI_NOT_CONFIGURED instead.
-      ai: createAiProvider({
-        provider: 'anthropic',
-        model: env.AI_MODEL,
-        anthropicApiKey: env.ANTHROPIC_API_KEY,
-      }),
+      ai,
       paymentsRepo: paymentRepository,
       doctorPayments: doctorPaymentRepository,
       mobileMoney: createMobileMoney(env),
@@ -161,6 +167,13 @@ async function main(): Promise<void> {
     },
     redis,
   });
+
+  app.log.info(
+    ai === null
+      ? { aiProvider: env.AI_PROVIDER, aiConfigured: false }
+      : { aiProvider: ai.name, aiModel: ai.model },
+    ai === null ? 'AI screening disabled: selected provider has no key (503)' : 'AI screening provider',
+  );
 
   // Unpaid MOBILE_MONEY bookings expire after 30 minutes; sweep every minute.
   const stopExpirySweep = startExpirySweep(services.appointments, 60_000, (error) => {
