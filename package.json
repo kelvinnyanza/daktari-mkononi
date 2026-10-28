@@ -18,7 +18,7 @@
     "format:check": "prettier --check .",
     "dev:setup": "node scripts/dev-setup.mjs",
     "dev:doctor": "node scripts/dev-doctor.mjs",
-    "smoke:check": "node scripts/smoke-check.mjs",
+    "smoke:check": "pnpm --silent --filter @daktari/ai build && node scripts/smoke-check.mjs",
     "db:install": "node scripts/db.mjs install",
     "db:start": "node scripts/db.mjs start",
     "db:stop": "node scripts/db.mjs stop",
