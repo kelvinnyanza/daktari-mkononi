@@ -24,5 +24,6 @@ export {
 } from './openai.js';
 export type { OpenAiModelProfile, OpenAiProviderOptions } from './openai.js';
 export { FakeAi } from './fake.js';
+export { DEV_FAKE_MARKER, DEV_FAKE_TURNS_TO_COMPLETE, DevFakeAi } from './dev-fake.js';
 export { createAiProvider } from './factory.js';
 export type { AiProviderConfig } from './factory.js';

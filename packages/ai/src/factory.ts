@@ -1,4 +1,5 @@
 import { AnthropicProvider } from './anthropic.js';
+import { DevFakeAi } from './dev-fake.js';
 import { OpenAiProvider } from './openai.js';
 import type { AIProvider, AiProviderName } from './port.js';
 
@@ -8,6 +9,8 @@ export interface AiProviderConfig {
   model?: string | undefined;
   anthropicApiKey?: string | undefined;
   openaiApiKey?: string | undefined;
+  /** NODE_ENV === 'production'. The fake is refused here as well as by the boot guard. */
+  production?: boolean;
 }
 
 /**
@@ -33,6 +36,9 @@ export function createAiProvider(config: AiProviderConfig): AIProvider | null {
             ...(config.model !== undefined ? { model: config.model } : {}),
           });
     case 'fake':
-      throw new Error(`AI provider "${config.provider}" is not implemented yet`);
+      if (config.production === true) {
+        throw new Error('AI_PROVIDER=fake is dev-only and refused in production');
+      }
+      return new DevFakeAi();
   }
 }

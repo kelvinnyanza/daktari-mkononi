@@ -78,7 +78,7 @@ export interface AIProvider {
   completeStructured<T>(request: AiRequest, schema: z.ZodType<T>): Promise<AiStructuredResult<T>>;
 }
 
-const JSON_ONLY_DIRECTIVE =
+export const JSON_ONLY_DIRECTIVE =
   'Respond with ONLY a single valid JSON object — no prose, no markdown fences, no commentary before or after it.';
 
 /** Tolerate models that wrap JSON in markdown fences or stray prose. */

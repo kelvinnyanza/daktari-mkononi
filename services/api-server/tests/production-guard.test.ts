@@ -128,6 +128,18 @@ describe('production adapter guard', () => {
     expect(() => assertProductionReady(asProduction)).toThrow(ProductionReadinessError);
   });
 
+  it('refuses the dev fake AI in production (AI_PROVIDER=fake)', () => {
+    const env = loadEnv({ ...prodEnv, AI_PROVIDER: 'fake' });
+    expect(findProductionAdapterOffenders(env)).toEqual(['AI_PROVIDER']);
+    expect(() => assertProductionReady(env)).toThrow(ProductionReadinessError);
+    expect(() => assertProductionReady(env)).toThrow(/AI_PROVIDER/);
+  });
+
+  it('allows the dev fake AI outside production', () => {
+    const env = loadEnv({ ...prodEnv, NODE_ENV: 'development', AI_PROVIDER: 'fake' });
+    expect(() => assertProductionReady(env)).not.toThrow();
+  });
+
   it('rejects localhost URLs in production', () => {
     // The schema defaults these for dev; shipping the default would break CORS
     // and put localhost links in real SMS messages.

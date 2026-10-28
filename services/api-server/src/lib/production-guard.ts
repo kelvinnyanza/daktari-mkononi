@@ -28,6 +28,8 @@ export function findProductionAdapterOffenders(env: Env): string[] {
 
   // AI screening — unset means every screening endpoint answers 503.
   if (missing(env.ANTHROPIC_API_KEY)) offenders.push('ANTHROPIC_API_KEY');
+  // The dev fake answers canned [JARIBIO] text: never in front of real patients.
+  if (env.AI_PROVIDER === 'fake') offenders.push('AI_PROVIDER');
 
   // Document storage — unset means PHI documents land on the pod's local disk
   // and vanish with it, instead of S3.

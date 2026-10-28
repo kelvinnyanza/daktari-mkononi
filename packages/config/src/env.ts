@@ -62,6 +62,9 @@ export const envSchema = z.object({
   STORAGE_ROOT: z.string().min(1).default('.storage'),
 
   // ── AI (screening/triage) ─────────────────────────────────────────────────
+  // Which backend answers screening. `fake` is a dev-only canned [JARIBIO]
+  // responder — the production guard refuses to boot with it.
+  AI_PROVIDER: z.enum(['anthropic', 'openai', 'fake']).default('anthropic'),
   // Unset ⇒ screening endpoints answer 503 AI_NOT_CONFIGURED. Never faked.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   AI_MODEL: z.string().min(1).default('claude-sonnet-4-6'),
