@@ -84,10 +84,24 @@ function providerKeys() {
   if (!isSet('DAILY_CO_API_KEY')) console.log('  ! video uses FakeVideo — no real call can connect');
 }
 
+// The smoke:check entry rebuilds packages/ai/dist first, which makes a
+// `tsx watch` dev API restart; ride out that brief ECONNREFUSED window.
+async function fetchLive(url) {
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    try {
+      return await fetch(url, { signal: AbortSignal.timeout(5_000) });
+    } catch (error) {
+      if (error?.cause?.code !== 'ECONNREFUSED' || Date.now() > deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+}
+
 async function health() {
   console.log(`\nAPI (${API_URL})`);
   try {
-    const live = await fetch(new URL('/health', API_URL), { signal: AbortSignal.timeout(5_000) });
+    const live = await fetchLive(new URL('/health', API_URL));
     if (live.ok) pass('GET /health', String(live.status));
     else return fail('GET /health', `HTTP ${live.status}`);
   } catch (error) {

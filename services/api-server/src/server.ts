@@ -189,7 +189,13 @@ async function main(): Promise<void> {
   });
 
   const port = Number(new URL(env.API_URL).port || 4000);
-  await app.listen({ port, host: '0.0.0.0' });
+  // Production keeps its IPv4 wildcard bind. Development binds the dual-stack
+  // wildcard '::' (ipv6Only off by default), which accepts IPv4 *and* IPv6:
+  // Node ≥17 resolves "localhost" to ::1 first, so an IPv4-only bind makes
+  // every Node client using http://localhost:4000 fail with ECONNREFUSED,
+  // while the phone still needs the LAN address.
+  const host = env.NODE_ENV === 'production' ? '0.0.0.0' : '::';
+  await app.listen({ port, host });
 
   let shuttingDown = false;
   const shutdown = (signal: string): void => {
