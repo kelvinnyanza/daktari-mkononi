@@ -44,6 +44,13 @@ export function buildWsGateway(
   tickets: WsTicketStore,
   pubsub: PubSubPort,
 ): FastifyPluginAsync {
+  // Who is in each consultation channel: consultationId → userId → open
+  // sockets. Presence was only ever broadcast at join time, so whoever joined
+  // SECOND never learned about the first (portal reloaded after the patient
+  // connected ⇒ "Patient is offline" forever). Process-local, like
+  // InMemoryPubSub — moves to Redis with it.
+  const presence = new Map<string, Map<string, number>>();
+
   return async (app) => {
     app.get('/ws', { websocket: true }, (socket: WebSocket, request) => {
       const { ticket } = request.query as { ticket?: string };
@@ -89,6 +96,15 @@ export function buildWsGateway(
             send(event as WsServerFrame);
           });
           subscriptions.set(frame.consultationId, unsubscribe);
+          const present = presence.get(frame.consultationId) ?? new Map<string, number>();
+          presence.set(frame.consultationId, present);
+          // Snapshot for the joiner: everyone already in the channel.
+          for (const otherUserId of present.keys()) {
+            if (otherUserId !== userId) {
+              send({ type: 'participant.joined', consultationId: frame.consultationId, userId: otherUserId });
+            }
+          }
+          present.set(userId, (present.get(userId) ?? 0) + 1);
           pubsub.publish(channel, {
             type: 'participant.joined',
             consultationId: frame.consultationId,
@@ -123,6 +139,16 @@ export function buildWsGateway(
       socket.on('close', () => {
         for (const [consultationId, unsubscribe] of subscriptions) {
           unsubscribe();
+          const present = presence.get(consultationId);
+          const remaining = (present?.get(userId) ?? 1) - 1;
+          if (present !== undefined) {
+            if (remaining > 0) present.set(userId, remaining);
+            else present.delete(userId);
+            if (present.size === 0) presence.delete(consultationId);
+          }
+          // A reconnect overlaps old and new sockets: only the LAST socket
+          // closing means the user actually left.
+          if (remaining > 0) continue;
           pubsub.publish(consultationChannel(consultationId), {
             type: 'participant.left',
             consultationId,

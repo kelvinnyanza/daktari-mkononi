@@ -206,6 +206,36 @@ describe('channels + chat', () => {
     loneSocket.close();
   });
 
+  it('a late joiner is told who is already present (portal opened after the patient)', async () => {
+    const patientSocket = await connect(await fetchTicket(await tokenFor(patientUser)));
+    patientSocket.send(JSON.stringify({ type: 'join', consultationId }));
+    await nextFrame(patientSocket, (f) => f.type === 'joined');
+
+    const doctorSocket = await connect(await fetchTicket(await tokenFor(doctorUser)));
+    const present = nextFrame(doctorSocket, (f) => f.type === 'participant.joined');
+    doctorSocket.send(JSON.stringify({ type: 'join', consultationId }));
+    expect((await present).userId).toBe(patientUser.id);
+
+    // A second patient socket (reconnect overlap): closing the OLD one must
+    // not mark the patient as gone; closing the last one must.
+    const patientSocket2 = await connect(await fetchTicket(await tokenFor(patientUser)));
+    patientSocket2.send(JSON.stringify({ type: 'join', consultationId }));
+    await nextFrame(patientSocket2, (f) => f.type === 'joined');
+    const leftFrames: string[] = [];
+    doctorSocket.on('message', (raw) => {
+      const frame = JSON.parse(String(raw)) as { type: string };
+      if (frame.type === 'participant.left') leftFrames.push(frame.type);
+    });
+    patientSocket.close();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(leftFrames).toEqual([]);
+
+    const left = nextFrame(doctorSocket, (f) => f.type === 'participant.left');
+    patientSocket2.close();
+    expect((await left).userId).toBe(patientUser.id);
+    doctorSocket.close();
+  });
+
   it('malformed frames answer an error frame instead of crashing the socket', async () => {
     const socket = await connect(await fetchTicket(await tokenFor(patientUser)));
     socket.send('not-json');
