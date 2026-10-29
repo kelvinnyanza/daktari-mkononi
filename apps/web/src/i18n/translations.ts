@@ -222,6 +222,9 @@ export const en = {
   'consultation.video': 'Video',
   'consultation.joinVideo': 'Join video',
   'consultation.leaveVideo': 'Leave video',
+  'consultation.cameraUnavailable': 'Camera unavailable — continuing with audio',
+  'consultation.pickCamera': 'Choose camera',
+  'consultation.cameraOn': 'Turn camera on',
   'consultation.complete': 'Complete consultation',
   'consultation.completeBlocked': 'Assessment and plan are required before completing.',
   'consultation.completeNotesUnsaved':
@@ -453,6 +456,9 @@ export const sw: Record<TranslationKey, string> = {
   'consultation.video': 'Video',
   'consultation.joinVideo': 'Jiunge na video',
   'consultation.leaveVideo': 'Ondoka kwenye video',
+  'consultation.cameraUnavailable': 'Kamera haipatikani — unaendelea kwa sauti',
+  'consultation.pickCamera': 'Chagua kamera',
+  'consultation.cameraOn': 'Washa kamera',
   'consultation.complete': 'Kamilisha mashauriano',
   'consultation.completeBlocked': 'Tathmini na mpango vinahitajika kabla ya kukamilisha.',
   'consultation.completeNotesUnsaved':
