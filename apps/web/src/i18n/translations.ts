@@ -225,6 +225,7 @@ export const en = {
   'consultation.cameraUnavailable': 'Camera unavailable — continuing with audio',
   'consultation.pickCamera': 'Choose camera',
   'consultation.cameraOn': 'Turn camera on',
+  'consultation.preJoinHint': 'Check your camera and microphone, then press Join inside the video window.',
   'consultation.complete': 'Complete consultation',
   'consultation.completeBlocked': 'Assessment and plan are required before completing.',
   'consultation.completeNotesUnsaved':
@@ -459,6 +460,7 @@ export const sw: Record<TranslationKey, string> = {
   'consultation.cameraUnavailable': 'Kamera haipatikani — unaendelea kwa sauti',
   'consultation.pickCamera': 'Chagua kamera',
   'consultation.cameraOn': 'Washa kamera',
+  'consultation.preJoinHint': 'Kagua kamera na kipaza sauti, kisha bonyeza Join ndani ya dirisha la video.',
   'consultation.complete': 'Kamilisha mashauriano',
   'consultation.completeBlocked': 'Tathmini na mpango vinahitajika kabla ya kukamilisha.',
   'consultation.completeNotesUnsaved':

@@ -30,7 +30,13 @@ export function VideoPanel({ consultationId }: { consultationId: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<DailyCall | null>(null);
   const releasingRef = useRef<Promise<void>>(Promise.resolve());
-  const [joined, setJoined] = useState(false);
+  const attemptRef = useRef(0);
+  // 'joining' must already show the frame: Daily Prebuilt's pre-join screen
+  // (domain enable_prejoin_ui) opens the camera and waits for a click on its
+  // own Join button, so join() cannot resolve while the frame is hidden — the
+  // doctor sat on a 0×0 iframe holding the camera and never entered the room.
+  const [phase, setPhase] = useState<'idle' | 'joining' | 'joined'>('idle');
+  const joined = phase === 'joined';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cameraOff, setCameraOff] = useState(false);
@@ -69,6 +75,9 @@ export function VideoPanel({ consultationId }: { consultationId: string }) {
   };
 
   const join = async (): Promise<void> => {
+    // Leave during the pre-join screen bumps the attempt: the abandoned join
+    // must neither flip the panel to 'joined' nor report its teardown as an error.
+    const attempt = ++attemptRef.current;
     setError(null);
     setCameraOff(false);
     setBusy(true);
@@ -83,6 +92,7 @@ export function VideoPanel({ consultationId }: { consultationId: string }) {
       // Imported lazily: daily-js pulls in a large bundle and touches browser
       // APIs, so it must not load during SSR or for consultations without video.
       const DailyIframe = (await import('@daily-co/daily-js')).default;
+      setPhase('joining'); // frame visible from creation (pre-join screen)
       const result = await joinWithCameraFallback(
         () => {
           const frame = DailyIframe.createFrame(container, {
@@ -95,13 +105,16 @@ export function VideoPanel({ consultationId }: { consultationId: string }) {
         { url: roomUrl, token: meetingToken },
         () => setCameraOff(true),
       );
+      if (attempt !== attemptRef.current) return; // left while joining
       frameRef.current = result.frame as DailyCall;
       setCameraOff(result.cameraOff);
-      setJoined(true);
+      setPhase('joined');
       void loadCameras(result.frame as DailyCall);
     } catch (caught) {
+      if (attempt !== attemptRef.current) return; // teardown of an abandoned join
       // A failed join leaves the call object alive; without destroying it the
       // next click throws "Duplicate DailyIframe instances are not allowed".
+      setPhase('idle');
       await release();
       const detail = dailyErrorDetail(caught);
       setError(detail === null ? t('common.error') : `${t('common.error')} (${detail})`);
@@ -126,7 +139,8 @@ export function VideoPanel({ consultationId }: { consultationId: string }) {
   };
 
   const leave = async (): Promise<void> => {
-    setJoined(false);
+    attemptRef.current += 1;
+    setPhase('idle');
     setCameraOff(false);
     setBusy(true);
     await release();
@@ -136,8 +150,10 @@ export function VideoPanel({ consultationId }: { consultationId: string }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        {joined ? (
-          <Button size="sm" variant="outline" onClick={() => void leave()} disabled={busy}>
+        {phase !== 'idle' ? (
+          // Also offered while joining: a pre-join screen the doctor abandons
+          // must still release the camera.
+          <Button size="sm" variant="outline" onClick={() => void leave()} disabled={joined && busy}>
             {t('consultation.leaveVideo')}
           </Button>
         ) : (
@@ -147,6 +163,9 @@ export function VideoPanel({ consultationId }: { consultationId: string }) {
         )}
         {error !== null && <span className="text-xs text-destructive">{error}</span>}
       </div>
+      {phase === 'joining' && (
+        <p className="text-xs text-muted-foreground">{t('consultation.preJoinHint')}</p>
+      )}
       {joined && cameraOff && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2 text-xs">
           <span>{t('consultation.cameraUnavailable')}</span>
@@ -173,7 +192,10 @@ export function VideoPanel({ consultationId }: { consultationId: string }) {
       )}
       <div
         ref={containerRef}
-        className={joined ? 'h-[320px] w-full overflow-hidden rounded-md border border-border' : 'hidden'}
+        data-testid="video-frame-container"
+        className={
+          phase === 'idle' ? 'hidden' : 'h-[420px] w-full overflow-hidden rounded-md border border-border'
+        }
       />
     </div>
   );
