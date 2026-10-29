@@ -10,12 +10,8 @@ import { Body, Button, LoadingState } from '../../components/ui';
 import { useT } from '../../i18n';
 import { loadDaily, type DailyMediaViewProps, type LoadedDaily, type VideoCall } from '../../services/video/daily-boundary';
 import { radius, spacing, typography } from '../../theme/tokens';
-import { classifyJoinError, type JoinFailure } from './video-error';
-
-interface Participant {
-  videoTrack?: unknown;
-  audioTrack?: unknown;
-}
+import { startCallSession, type CallParticipant } from './call-session';
+import type { JoinFailure } from './video-error';
 
 export interface VideoCallHandle {
   toggleAudio: (enabled: boolean) => void;
@@ -39,66 +35,45 @@ export function VideoCallView({
   const t = useT();
   const [daily, setDaily] = useState<LoadedDaily | null>(null);
   const [error, setError] = useState<'load' | JoinFailure | null>(null);
-  const [local, setLocal] = useState<Participant | null>(null);
-  const [remote, setRemote] = useState<Participant | null>(null);
+  const [local, setLocal] = useState<CallParticipant | null>(null);
+  const [remote, setRemote] = useState<CallParticipant | null>(null);
   const callRef = useRef<VideoCall | null>(null);
+  // Latest callbacks, read by the session on each event: their identity must
+  // never restart the call (an inline callback used to rejoin on every render).
+  const propsRef = useRef({ onQuality, onControls });
+  propsRef.current = { onQuality, onControls };
 
+  // Exactly one call per (roomUrl, token) — see call-session.ts.
   useEffect(() => {
-    let disposed = false;
-    let call: VideoCall | null = null;
-
-    void (async () => {
-      let loaded: LoadedDaily;
-      try {
-        loaded = await loadDaily();
-      } catch {
-        if (!disposed) setError('load');
-        return;
-      }
-      if (disposed) return;
-      setDaily(loaded);
-      call = loaded.createCall();
-      callRef.current = call;
-      onControls({
-        toggleAudio: (enabled) => call?.setLocalAudio(enabled),
-        toggleVideo: (enabled) => call?.setLocalVideo(enabled),
-        flip: () => void call?.cycleCamera(),
-      });
-
-      call.on('participant-updated', (payload) => {
-        const p = payload as { participant?: { local?: boolean; tracks?: unknown } };
-        if (p.participant?.local === true) setLocal(p.participant as Participant);
-        else if (p.participant !== undefined) setRemote(p.participant as Participant);
-      });
-      call.on('network-quality-change', (payload) => {
-        const q = payload as { threshold?: string };
-        onQuality(q.threshold === 'low' || q.threshold === 'very-low');
-      });
-      // Fatal meeting errors and camera/mic errors: only a real permission
-      // denial gets the settings screen; anything else shows Daily's code.
-      call.on('error', (payload) => {
-        if (!disposed) setError(classifyJoinError(payload));
-      });
-      call.on('camera-error', (payload) => {
-        const failure = classifyJoinError(payload);
-        if (!disposed && failure.kind === 'permission') setError(failure);
-      });
-
-      try {
-        await call.join({ url: roomUrl, token });
-      } catch (caught) {
-        if (!disposed) setError(classifyJoinError(caught));
-      }
-    })();
-
+    setError(null);
+    setRemote(null);
+    setLocal(null);
+    const session = startCallSession({
+      load: loadDaily,
+      roomUrl,
+      token,
+      listeners: () => ({
+        onLoaded: (loaded, call) => {
+          setDaily(loaded);
+          callRef.current = call;
+          propsRef.current.onControls({
+            toggleAudio: (enabled) => call.setLocalAudio(enabled),
+            toggleVideo: (enabled) => call.setLocalVideo(enabled),
+            flip: () => void call.cycleCamera(),
+          });
+        },
+        onLoadFailed: () => setError('load'),
+        onLocal: setLocal,
+        onRemote: setRemote,
+        onQuality: (poor) => propsRef.current.onQuality(poor),
+        onFailure: setError,
+      }),
+    });
     return () => {
-      disposed = true;
-      void call?.leave().then(() => call?.destroy());
+      session.stop(); // leave → destroy, awaited before any next call starts
       callRef.current = null;
     };
-    // Join once per room/token; control toggles happen imperatively. onControls
-    // and onQuality are stable callbacks from the parent.
-  }, [roomUrl, token, onControls, onQuality]);
+  }, [roomUrl, token]);
 
   useEffect(() => {
     callRef.current?.setLocalVideo(videoEnabled);

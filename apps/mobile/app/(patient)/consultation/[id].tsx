@@ -52,6 +52,11 @@ export default function ConsultationScreen(): React.JSX.Element {
       consultation.data?.status === 'IN_PROGRESS' &&
       consultation.data.videoRoomUrl !== null,
     retry: false,
+    // The token keys the call session: a background refetch mid-call would
+    // swap it and rejoin. Fixed for this screen's life; dropped on unmount so
+    // a rejoin always fetches a fresh (unexpired) one.
+    staleTime: Infinity,
+    gcTime: 0,
   });
 
   const [chat, dispatchChat] = useReducer(chatReducer, initialChatState);
@@ -66,6 +71,9 @@ export default function ConsultationScreen(): React.JSX.Element {
   const socketRef = useRef<ConsultationSocket | null>(null);
 
   const selfUserId = me.data?.user.id ?? '';
+  const onControls = useCallback((handle: VideoCallHandle) => {
+    controlsRef.current = handle;
+  }, []);
 
   // Load chat history once we know who we are.
   useEffect(() => {
@@ -168,7 +176,7 @@ export default function ConsultationScreen(): React.JSX.Element {
           token={token.data.meetingToken}
           videoEnabled={!cameraOff}
           onQuality={setPoorConnection}
-          onControls={(handle) => (controlsRef.current = handle)}
+          onControls={onControls}
         />
       ) : fullScreenChat ? (
         <ChatPanel entries={chat.entries} onSend={sendChat} onRetry={sendChat} fullScreen />
