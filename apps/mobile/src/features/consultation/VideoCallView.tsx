@@ -10,6 +10,7 @@ import { Body, Button, LoadingState } from '../../components/ui';
 import { useT } from '../../i18n';
 import { loadDaily, type DailyMediaViewProps, type LoadedDaily, type VideoCall } from '../../services/video/daily-boundary';
 import { radius, spacing, typography } from '../../theme/tokens';
+import { classifyJoinError, type JoinFailure } from './video-error';
 
 interface Participant {
   videoTrack?: unknown;
@@ -37,7 +38,7 @@ export function VideoCallView({
 }): React.JSX.Element {
   const t = useT();
   const [daily, setDaily] = useState<LoadedDaily | null>(null);
-  const [error, setError] = useState<'load' | 'permission' | null>(null);
+  const [error, setError] = useState<'load' | JoinFailure | null>(null);
   const [local, setLocal] = useState<Participant | null>(null);
   const [remote, setRemote] = useState<Participant | null>(null);
   const callRef = useRef<VideoCall | null>(null);
@@ -73,17 +74,20 @@ export function VideoCallView({
         const q = payload as { threshold?: string };
         onQuality(q.threshold === 'low' || q.threshold === 'very-low');
       });
+      // Fatal meeting errors and camera/mic errors: only a real permission
+      // denial gets the settings screen; anything else shows Daily's code.
       call.on('error', (payload) => {
-        const e = payload as { errorMsg?: string };
-        if (e.errorMsg !== undefined && /permission|denied|camera|microphone/i.test(e.errorMsg)) {
-          setError('permission');
-        }
+        if (!disposed) setError(classifyJoinError(payload));
+      });
+      call.on('camera-error', (payload) => {
+        const failure = classifyJoinError(payload);
+        if (!disposed && failure.kind === 'permission') setError(failure);
       });
 
       try {
         await call.join({ url: roomUrl, token });
-      } catch {
-        if (!disposed) setError('permission');
+      } catch (caught) {
+        if (!disposed) setError(classifyJoinError(caught));
       }
     })();
 
@@ -100,11 +104,22 @@ export function VideoCallView({
     callRef.current?.setLocalVideo(videoEnabled);
   }, [videoEnabled]);
 
-  if (error === 'permission') {
+  if (error !== null && error !== 'load' && error.kind === 'permission') {
     return (
       <View style={styles.stateBox}>
         <Body>{t('consult.call.permissionDenied')}</Body>
         <Button label={t('consult.call.openSettings')} onPress={() => void Linking.openSettings()} />
+      </View>
+    );
+  }
+  if (error !== null && error !== 'load') {
+    return (
+      <View style={styles.stateBox}>
+        <Body>
+          {error.detail === null
+            ? t('consult.call.joinFailed')
+            : `${t('consult.call.joinFailed')} (${error.detail})`}
+        </Body>
       </View>
     );
   }
