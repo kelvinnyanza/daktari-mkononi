@@ -1,15 +1,17 @@
 /**
  * Waiting room. The consultation channel is per-consultation and can't be
  * joined before the doctor starts it, so the room polls the appointment's
- * consultation status (5s); once it exists and is IN_PROGRESS it auto-
- * transitions into the call. COMPLETED/ABANDONED route to the appropriate
- * end state.
+ * consultation status (5s). Whenever that status is IN_PROGRESS — including
+ * when it ALREADY was on entry (a rejoin) — it goes straight into the call;
+ * COMPLETED routes to the end state. A visible "Join" button backs up the
+ * automatic redirect, so the patient can never be stuck here.
  */
-import { useEffect } from 'react';
+import { useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, Text, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Body, Button, Title } from '../../../../src/components/ui';
+import { waitingRoomView } from '../../../../src/features/consultation/waiting-room';
 import { useT } from '../../../../src/i18n';
 import { ratingApi } from '../../../../src/services/endpoints';
 import { colors, radius, spacing, typography } from '../../../../src/theme/tokens';
@@ -20,36 +22,38 @@ export default function WaitingRoom(): React.JSX.Element {
 
   // statusForAppointment returns { consultationId, status } once it exists
   // (404 before the doctor starts — react-query treats it as an error we poll
-  // through). Poll every 5s.
+  // through). Poll every 5s; always refetch on entry, never trust the cache.
   const status = useQuery({
     queryKey: ['consultation-status', appointmentId],
     queryFn: () => ratingApi.statusForAppointment(appointmentId ?? ''),
     refetchInterval: 5_000,
+    refetchOnMount: 'always',
     retry: false,
   });
 
-  useEffect(() => {
-    if (status.data === undefined) return;
-    if (status.data.status === 'IN_PROGRESS') {
-      router.replace({ pathname: '/(patient)/consultation/[id]', params: { id: status.data.consultationId } });
-    } else if (status.data.status === 'COMPLETED') {
-      router.replace({ pathname: '/(patient)/consultation/[id]', params: { id: status.data.consultationId } });
-    }
-  }, [status.data]);
+  const view = waitingRoomView({ data: status.data, isError: status.isError });
+  const target = view.enterConsultationId;
 
-  const connectionKey = status.isError
-    ? 'consult.waiting.status.connecting' // no consultation yet — still waiting
-    : status.isPending
-      ? 'consult.waiting.status.connecting'
-      : 'consult.waiting.status.open';
+  const enter = useCallback((consultationId: string) => {
+    router.replace({ pathname: '/(patient)/consultation/[id]', params: { id: consultationId } });
+  }, []);
+
+  // Keyed on the primitive id and run on focus — not on a data-object change,
+  // which never happens when the status was already IN_PROGRESS on entry.
+  useFocusEffect(
+    useCallback(() => {
+      if (target !== null) enter(target);
+    }, [target, enter]),
+  );
 
   return (
     <View style={styles.container}>
       <Title>{t('consult.waiting.title')}</Title>
       <View style={styles.card}>
-        <Text style={styles.status}>{t(connectionKey)}</Text>
-        <Body muted>{t('consult.waiting.hint')}</Body>
+        <Text style={styles.status}>{t(view.statusKey)}</Text>
+        {target === null ? <Body muted>{t('consult.waiting.hint')}</Body> : null}
       </View>
+      {target !== null ? <Button label={t('consult.join')} onPress={() => enter(target)} /> : null}
       <Button label={t('common.back')} onPress={() => router.back()} />
     </View>
   );

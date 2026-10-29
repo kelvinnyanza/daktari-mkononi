@@ -1,4 +1,4 @@
-import { canEnterWaitingRoom, consultationEntry, waitingRoomTransition } from './waiting-room';
+import { canEnterWaitingRoom, consultationEntry, waitingRoomTransition, waitingRoomView } from './waiting-room';
 import type { ConsultationStatusFrame } from '../../services/ws-frames';
 
 const NOW = new Date('2026-07-20T08:55:00.000Z');
@@ -59,6 +59,41 @@ describe('consultationEntry (Appointment details action)', () => {
     for (const status of ['PENDING_PAYMENT', 'COMPLETED', 'CANCELLED', 'NO_SHOW']) {
       expect(consultationEntry(at(status), NOW)).toBeNull();
     }
+  });
+});
+
+describe('waitingRoomView', () => {
+  it('a consultation ALREADY in progress on (re)entry goes straight in — no waiting for a start event', () => {
+    expect(waitingRoomView({ data: { consultationId: 'c1', status: 'IN_PROGRESS' }, isError: false })).toEqual({
+      statusKey: 'consult.waiting.status.entering',
+      enterConsultationId: 'c1',
+    });
+  });
+
+  it('still enters from cached IN_PROGRESS data while a background refetch errors', () => {
+    expect(
+      waitingRoomView({ data: { consultationId: 'c1', status: 'IN_PROGRESS' }, isError: true }).enterConsultationId,
+    ).toBe('c1');
+  });
+
+  it('COMPLETED also leaves the waiting room (end state lives on the consultation screen)', () => {
+    expect(
+      waitingRoomView({ data: { consultationId: 'c1', status: 'COMPLETED' }, isError: false }).enterConsultationId,
+    ).toBe('c1');
+  });
+
+  it('before the doctor starts (404) it keeps waiting', () => {
+    expect(waitingRoomView({ data: undefined, isError: true })).toEqual({
+      statusKey: 'consult.waiting.status.connecting',
+      enterConsultationId: null,
+    });
+  });
+
+  it('an interrupted (ABANDONED) consultation waits for the doctor to restart it', () => {
+    expect(waitingRoomView({ data: { consultationId: 'c1', status: 'ABANDONED' }, isError: false })).toEqual({
+      statusKey: 'consult.waiting.status.open',
+      enterConsultationId: null,
+    });
   });
 });
 

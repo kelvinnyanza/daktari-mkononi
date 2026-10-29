@@ -34,6 +34,40 @@ export function consultationEntry(
   return canEnterWaitingRoom(appointment, now) ? 'waiting-room' : null;
 }
 
+export interface WaitingRoomView {
+  /** i18n key for the status line. */
+  statusKey:
+    | 'consult.waiting.status.connecting'
+    | 'consult.waiting.status.open'
+    | 'consult.waiting.status.entering';
+  /** Consultation to enter now, or null to keep waiting. */
+  enterConsultationId: string | null;
+}
+
+/**
+ * What the waiting room shows for the latest by-appointment status.
+ *
+ * A consultation that is ALREADY IN_PROGRESS when the patient (re)enters
+ * means "go in now" — not "wait for the doctor to start": the start already
+ * happened and will not be announced again. (The old screen only reacted to
+ * a change of the query data; on a rejoin the cached IN_PROGRESS never
+ * changed, so it sat on "waiting for the doctor" forever.)
+ */
+export function waitingRoomView(query: {
+  data: { consultationId: string; status: string } | undefined;
+  isError: boolean;
+}): WaitingRoomView {
+  const data = query.data;
+  if (data !== undefined && (data.status === 'IN_PROGRESS' || data.status === 'COMPLETED')) {
+    return { statusKey: 'consult.waiting.status.entering', enterConsultationId: data.consultationId };
+  }
+  if (data === undefined || query.isError) {
+    // 404 before the doctor starts — still waiting.
+    return { statusKey: 'consult.waiting.status.connecting', enterConsultationId: null };
+  }
+  return { statusKey: 'consult.waiting.status.open', enterConsultationId: null };
+}
+
 export type WaitingRoomTransition = 'enter-call' | 'completed' | 'interrupted' | 'wait';
 
 /** Map a consultation.status frame to what the waiting room should do next. */
