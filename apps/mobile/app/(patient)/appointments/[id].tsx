@@ -18,7 +18,7 @@ import {
   Title,
 } from '../../../src/components/ui';
 import { leftPendingPayment, pollInterval, mnoWalletLabel } from '../../../src/features/payments/polling';
-import { canEnterWaitingRoom } from '../../../src/features/consultation/waiting-room';
+import { consultationEntry, isRemoteType } from '../../../src/features/consultation/waiting-room';
 import { useT } from '../../../src/i18n';
 import { eatDateTimeLabel, formatCountdown, secondsUntil } from '../../../src/lib/datetime';
 import { errorMessage } from '../../../src/lib/errors';
@@ -56,7 +56,7 @@ export default function AppointmentDetail(): React.JSX.Element {
     queryFn: () => appointmentApi.listMine(),
     refetchInterval: (q) => {
       const item = q.state.data?.items.find((entry) => entry.id === id);
-      return pollInterval(item?.status, focused);
+      return pollInterval(item?.status, focused, item !== undefined && isRemoteType(item.type));
     },
   });
   const appointment = query.data?.items.find((item) => item.id === id);
@@ -123,18 +123,28 @@ export default function AppointmentDetail(): React.JSX.Element {
             <PaymentStatusLines payment={payment} cancelled={appointment.status === 'CANCELLED'} />
           ) : null}
 
-          {/* Remote CONFIRMED appointments: enter the waiting room from 10 min out. */}
-          {canEnterWaitingRoom(appointment, new Date()) ? (
-            <Button
-              label={t('consult.enterWaitingRoom')}
-              onPress={() =>
-                router.push({
-                  pathname: '/(patient)/consultation/waiting/[appointmentId]',
-                  params: { appointmentId: appointment.id },
-                })
-              }
-            />
-          ) : null}
+          {/* Remote appointments: waiting room from 10 min out while CONFIRMED;
+              Join whenever the doctor has started (IN_PROGRESS). Both go via
+              the waiting room, which resolves the consultation id and
+              forwards straight into the call once it is IN_PROGRESS. */}
+          {(() => {
+            const entry = consultationEntry(appointment, new Date());
+            if (entry === null) return null;
+            return (
+              <>
+                {entry === 'join' ? <Body>{t('consult.joinHint')}</Body> : null}
+                <Button
+                  label={t(entry === 'join' ? 'consult.join' : 'consult.enterWaitingRoom')}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/(patient)/consultation/waiting/[appointmentId]',
+                      params: { appointmentId: appointment.id },
+                    })
+                  }
+                />
+              </>
+            );
+          })()}
 
           {appointment.status === 'COMPLETED' ? <RatingSection appointmentId={appointment.id} /> : null}
 

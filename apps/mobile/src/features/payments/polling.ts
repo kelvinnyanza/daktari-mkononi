@@ -6,10 +6,20 @@ import { deriveMno } from '@daktari/payments/mno';
 
 export const POLL_INTERVAL_MS = 5_000;
 
-/** Poll every 5s only while PENDING_PAYMENT and the screen is focused. */
-export function pollInterval(status: string | undefined, focused: boolean): number | false {
+/**
+ * Poll every 5s while the screen is focused and a server-side change is
+ * awaited: PENDING_PAYMENT (payment result), or a remote CONFIRMED appointment
+ * (the doctor may start it at any time — there is no user-level push channel
+ * before the consultation exists, so the Join action appears via this poll).
+ */
+export function pollInterval(
+  status: string | undefined,
+  focused: boolean,
+  remote = false,
+): number | false {
   if (!focused) return false;
-  return status === 'PENDING_PAYMENT' ? POLL_INTERVAL_MS : false;
+  if (status === 'PENDING_PAYMENT') return POLL_INTERVAL_MS;
+  return status === 'CONFIRMED' && remote ? POLL_INTERVAL_MS : false;
 }
 
 /**

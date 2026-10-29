@@ -227,6 +227,8 @@ export const sw = {
 
   // Consultation / call (Phase 10)
   'consult.enterWaitingRoom': 'Ingia chumba cha kusubiri',
+  'consult.join': 'Ingia kwenye mashauriano',
+  'consult.joinHint': 'Daktari ameanza mashauriano yako.',
   'consult.waiting.title': 'Chumba cha kusubiri',
   'consult.waiting.status.connecting': 'Inaunganisha…',
   'consult.waiting.status.open': 'Umeunganishwa — subiri daktari aanze',
@@ -468,6 +470,8 @@ export const en: Record<TranslationKey, string> = {
   'records.prescriptions.none': 'No medications prescribed',
   'records.addendum': 'Correction to record of {date}',
   'consult.enterWaitingRoom': 'Enter waiting room',
+  'consult.join': 'Join consultation',
+  'consult.joinHint': 'Your doctor has started the consultation.',
   'consult.waiting.title': 'Waiting room',
   'consult.waiting.status.connecting': 'Connecting…',
   'consult.waiting.status.open': 'Connected — waiting for the doctor to start',

@@ -15,6 +15,13 @@ describe('payment polling decisions', () => {
     expect(pollInterval('PENDING_PAYMENT', false)).toBe(false);
   });
 
+  it('polls a remote CONFIRMED appointment so the Join action appears when the doctor starts', () => {
+    expect(pollInterval('CONFIRMED', true, true)).toBe(POLL_INTERVAL_MS);
+    expect(pollInterval('CONFIRMED', true, false)).toBe(false); // in-person: nothing to await
+    expect(pollInterval('CONFIRMED', false, true)).toBe(false); // blurred
+    expect(pollInterval('IN_PROGRESS', true, true)).toBe(false); // Join already shown
+  });
+
   it('unknown/loading status does not poll', () => {
     expect(pollInterval(undefined, true)).toBe(false);
   });
