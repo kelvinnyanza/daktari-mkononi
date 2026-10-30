@@ -1,5 +1,5 @@
 import type { LoadedDaily, VideoCall } from '../../services/video/daily-boundary';
-import { callReleased, startCallSession, type CallListeners } from './call-session';
+import { callReleased, isPoorNetwork, participantTracks, startCallSession, type CallListeners } from './call-session';
 
 /** Let every pending promise chain settle (macrotask, not a fixed microtask count). */
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -57,6 +57,25 @@ const loaderFor = (calls: FakeCall[]) => {
   return async (): Promise<LoadedDaily> =>
     ({ createCall: () => calls[index++]!, MediaView: () => null }) as unknown as LoadedDaily;
 };
+
+describe('daily-js 0.94 adapters', () => {
+  it('reads tracks.*.persistentTrack, falls back to the deprecated fields, never passes `false`', () => {
+    const video = { id: 'v' };
+    const audio = { id: 'a' };
+    expect(participantTracks({ tracks: { video: { persistentTrack: video }, audio: { persistentTrack: audio } } })).toEqual({ video, audio });
+    expect(participantTracks({ videoTrack: video, audioTrack: audio })).toEqual({ video, audio }); // pre-0.7x shape
+    expect(participantTracks({ videoTrack: false, audioTrack: false })).toEqual({ video: null, audio: null });
+    expect(participantTracks(null)).toEqual({ video: null, audio: null });
+  });
+
+  it('network quality: networkState (current) first, threshold (deprecated) as fallback', () => {
+    expect(isPoorNetwork({ networkState: 'bad', threshold: 'good' })).toBe(true);
+    expect(isPoorNetwork({ networkState: 'warning' })).toBe(false);
+    expect(isPoorNetwork({ networkState: 'good', threshold: 'low' })).toBe(false); // new field wins
+    expect(isPoorNetwork({ threshold: 'very-low' })).toBe(true);
+    expect(isPoorNetwork(undefined)).toBe(false);
+  });
+});
 
 describe('call session', () => {
   it('a rejoin waits until the previous call has LEFT and been DESTROYED', async () => {

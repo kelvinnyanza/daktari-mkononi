@@ -37,6 +37,14 @@
       "expo-secure-store",
       "expo-dev-client",
       [
+        "@daily-co/config-plugin-rn-daily-js",
+        {
+          "enableCamera": true,
+          "enableMicrophone": true,
+          "enableScreenShare": false
+        }
+      ],
+      [
         "@config-plugins/react-native-webrtc",
         {
           "cameraPermission": "Kamera inahitajika kwa mashauriano ya video na daktari. / The camera is needed for video consultations with your doctor.",

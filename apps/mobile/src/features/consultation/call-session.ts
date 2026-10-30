@@ -22,11 +22,47 @@
 import type { LoadedDaily, VideoCall } from '../../services/video/daily-boundary';
 import { classifyJoinError, type JoinFailure } from './video-error';
 
+interface TrackState {
+  state?: string;
+  persistentTrack?: unknown;
+}
+
 export interface CallParticipant {
   session_id?: string;
   local?: boolean;
+  /** Current API (daily-js ≥0.7x): tracks.<kind>.persistentTrack. */
+  tracks?: { video?: TrackState; audio?: TrackState };
+  /** @deprecated by Daily ("will be removed"); may be `false`, not null. */
   videoTrack?: unknown;
+  /** @deprecated by Daily ("will be removed"); may be `false`, not null. */
   audioTrack?: unknown;
+}
+
+/**
+ * The tracks DailyMediaView needs (`MediaStreamTrack | null`). Reads the
+ * current `tracks.*.persistentTrack` API, falls back to the deprecated
+ * top-level fields, and never passes Daily's `false` through.
+ */
+export function participantTracks(participant: CallParticipant | null): { video: unknown; audio: unknown } {
+  const pick = (state: TrackState | undefined, legacy: unknown): unknown => {
+    const track = state?.persistentTrack ?? legacy;
+    return track === undefined || track === false ? null : track;
+  };
+  return {
+    video: pick(participant?.tracks?.video, participant?.videoTrack),
+    audio: pick(participant?.tracks?.audio, participant?.audioTrack),
+  };
+}
+
+/**
+ * Poor connection from a network-quality-change payload. daily-js 0.74+
+ * reports `networkState` (good | warning | bad | unknown) and deprecates
+ * `threshold`; read the new field first, the old one as a fallback.
+ */
+export function isPoorNetwork(payload: unknown): boolean {
+  const { networkState, threshold } = (payload ?? {}) as { networkState?: string; threshold?: string };
+  if (networkState !== undefined) return networkState === 'bad';
+  return threshold === 'low' || threshold === 'very-low';
 }
 
 export interface CallListeners {
@@ -101,8 +137,7 @@ export function startCallSession(options: {
       }
     });
     current.on('network-quality-change', (payload) => {
-      const threshold = (payload as { threshold?: string }).threshold;
-      if (!stopped) on().onQuality(threshold === 'low' || threshold === 'very-low');
+      if (!stopped) on().onQuality(isPoorNetwork(payload));
     });
     // Fatal meeting errors: only a real permission denial gets the settings
     // screen; anything else shows Daily's code.

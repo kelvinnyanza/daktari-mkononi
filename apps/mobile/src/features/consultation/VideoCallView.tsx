@@ -10,7 +10,7 @@ import { Body, Button, LoadingState } from '../../components/ui';
 import { useT } from '../../i18n';
 import { loadDaily, type DailyMediaViewProps, type LoadedDaily, type VideoCall } from '../../services/video/daily-boundary';
 import { radius, spacing, typography } from '../../theme/tokens';
-import { startCallSession, type CallParticipant } from './call-session';
+import { participantTracks, startCallSession, type CallParticipant } from './call-session';
 import type { JoinFailure } from './video-error';
 
 export interface VideoCallHandle {
@@ -108,14 +108,15 @@ export function VideoCallView({
   if (daily === null) return <LoadingState />;
 
   const MediaView = daily.MediaView;
+  const remoteTracks = participantTracks(remote);
   const remoteProps: DailyMediaViewProps = {
-    videoTrack: remote?.videoTrack,
-    audioTrack: remote?.audioTrack,
+    videoTrack: remoteTracks.video,
+    audioTrack: remoteTracks.audio,
     objectFit: 'cover',
     style: styles.remote,
   };
   const localProps: DailyMediaViewProps = {
-    videoTrack: local?.videoTrack,
+    videoTrack: participantTracks(local).video,
     mirror: true,
     objectFit: 'cover',
     style: styles.pip,
