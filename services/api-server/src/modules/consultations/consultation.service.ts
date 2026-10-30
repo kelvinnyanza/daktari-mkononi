@@ -464,9 +464,6 @@ export class ConsultationService {
     });
     if (!completed) throw INVALID_TRANSITION(consultation.status, 'COMPLETE_CONSULTATION');
 
-    if (consultation.videoRoomId !== null) {
-      await this.deps.video.endRoom(consultation.videoRoomId);
-    }
     await this.deps.consultations.incrementDoctorConsultations(consultation.doctorId);
     // Phase 7: accrue the doctor's share (paid mobile-money appointments only).
     await this.deps.payments.accrueForConsultation({
@@ -489,6 +486,7 @@ export class ConsultationService {
       consultationId: consultation.id,
       status: 'COMPLETED',
     });
+    await this.endVideoRoom(doctorUserId, consultation);
     return this.toView(completed, { includeNotes: true });
   }
 
@@ -532,15 +530,13 @@ export class ConsultationService {
     });
     if (!aborted) throw INVALID_TRANSITION(consultation.status, 'TECHNICAL_FAILURE');
 
-    if (consultation.videoRoomId !== null) {
-      await this.deps.video.endRoom(consultation.videoRoomId);
-    }
     await this.audit(userId, 'CONSULTATION_ABORTED', consultation.id, { reason });
     this.deps.pubsub.publish(consultationChannel(consultation.id), {
       type: 'consultation.status',
       consultationId: consultation.id,
       status: 'ABANDONED',
     });
+    await this.endVideoRoom(userId, consultation);
     return this.toView(aborted, { includeNotes: false });
   }
 
@@ -663,6 +659,29 @@ export class ConsultationService {
       })),
       ...(options.includeNotes ? { notes: this.decryptNotes(consultation) } : {}),
     };
+  }
+
+  /**
+   * Close the Daily room (ejects whoever is still in the call). Runs LAST and
+   * never throws: the status change is already committed, so a Daily/network
+   * failure here must not skip the medical record, the earnings accrual or
+   * the consultation.status broadcast (it used to run before all three). The
+   * room still expires on its own (exp = scheduled end + 2h); the failure is
+   * audited.
+   */
+  private async endVideoRoom(
+    actorUserId: string,
+    consultation: { id: string; videoRoomId: string | null },
+  ): Promise<void> {
+    if (consultation.videoRoomId === null) return;
+    try {
+      await this.deps.video.endRoom(consultation.videoRoomId);
+    } catch (error) {
+      await this.audit(actorUserId, 'VIDEO_ROOM_END_FAILED', consultation.id, {
+        roomId: consultation.videoRoomId,
+        error: error instanceof Error ? error.message.slice(0, 200) : 'unknown',
+      });
+    }
   }
 
   private audit(

@@ -232,6 +232,21 @@ describe('complete', () => {
     expect(detail.notes).toEqual(FULL_NOTES);
   });
 
+  it('a Daily failure when ending the room never skips the record, the broadcast or the audit', async () => {
+    const { doctorUser, consultationId } = await startedConsultation();
+    await consultations.updateNotes(doctorUser.id, consultationId, FULL_NOTES);
+    deps.video.endRoom = () => Promise.reject(new Error('Daily.co DELETE /rooms/x failed (503)'));
+    const frames: unknown[] = [];
+    deps.pubsub.subscribe(`consultation:${consultationId}`, (event) => frames.push(event));
+
+    const completed = await consultations.complete(doctorUser.id, consultationId);
+
+    expect(completed.status).toBe('COMPLETED');
+    expect([...deps.state.medicalRecords.values()].some((r) => r.consultationId === consultationId)).toBe(true);
+    expect(frames).toContainEqual(expect.objectContaining({ type: 'consultation.status', status: 'COMPLETED' }));
+    expect(deps.state.auditEntries.map((entry) => entry.action)).toContain('VIDEO_ROOM_END_FAILED');
+  });
+
   it('completing twice is illegal', async () => {
     const { doctorUser, consultationId } = await startedConsultation();
     await consultations.updateNotes(doctorUser.id, consultationId, FULL_NOTES);
