@@ -8,9 +8,11 @@ export const POLL_INTERVAL_MS = 5_000;
 
 /**
  * Poll every 5s while the screen is focused and a server-side change is
- * awaited: PENDING_PAYMENT (payment result), or a remote CONFIRMED appointment
- * (the doctor may start it at any time — there is no user-level push channel
- * before the consultation exists, so the Join action appears via this poll).
+ * awaited: PENDING_PAYMENT (payment result), or a remote appointment that is
+ * CONFIRMED (the doctor may start it at any time — there is no user-level push
+ * channel before the consultation exists, so the Join action appears via this
+ * poll) or IN_PROGRESS (the doctor completes it — the rating section then
+ * appears without a manual refresh).
  */
 export function pollInterval(
   status: string | undefined,
@@ -19,7 +21,7 @@ export function pollInterval(
 ): number | false {
   if (!focused) return false;
   if (status === 'PENDING_PAYMENT') return POLL_INTERVAL_MS;
-  return status === 'CONFIRMED' && remote ? POLL_INTERVAL_MS : false;
+  return remote && (status === 'CONFIRMED' || status === 'IN_PROGRESS') ? POLL_INTERVAL_MS : false;
 }
 
 /**

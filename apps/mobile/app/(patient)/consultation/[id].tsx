@@ -6,7 +6,7 @@
  * completion links the generated medical record.
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   FlatList,
   Pressable,
@@ -40,9 +40,13 @@ export default function ConsultationScreen(): React.JSX.Element {
   const { id } = useLocalSearchParams<{ id: string }>();
   const consultationId = id ?? '';
 
+  const queryClient = useQueryClient();
   const consultation = useQuery({
     queryKey: ['consultation', consultationId],
     queryFn: () => consultationApi.get(consultationId),
+    // Backstop for the WS consultation.status frame: if the socket is down
+    // when the doctor completes, the call screen still ends within ~10s.
+    refetchInterval: (q) => (q.state.data?.status === 'IN_PROGRESS' ? 10_000 : false),
   });
   const me = useQuery({ queryKey: ['auth', 'me'], queryFn: () => authApi.me() });
   const token = useQuery({
@@ -135,6 +139,17 @@ export default function ConsultationScreen(): React.JSX.Element {
       setInterruptedUsedUp((consultation.data.endReason ?? '').startsWith('TECHNICAL_FAILURE'));
     }
   }, [consultation.data]);
+
+  // The call ended (completed / interrupted): every screen showing this
+  // appointment is now stale. Without this, "Back" landed on a cached
+  // IN_PROGRESS Appointment details (Join button, no rating section).
+  const appointmentId = consultation.data?.appointmentId;
+  useEffect(() => {
+    if ((phase !== 'completed' && phase !== 'interrupted') || appointmentId === undefined) return;
+    void queryClient.invalidateQueries({ queryKey: ['appointments'] });
+    void queryClient.invalidateQueries({ queryKey: ['consultation-status', appointmentId] });
+    void queryClient.invalidateQueries({ queryKey: ['rating', appointmentId] });
+  }, [phase, appointmentId, queryClient]);
 
   const sendChat = useCallback(
     (body: string): void => {

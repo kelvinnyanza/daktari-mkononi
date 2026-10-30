@@ -19,7 +19,8 @@ describe('payment polling decisions', () => {
     expect(pollInterval('CONFIRMED', true, true)).toBe(POLL_INTERVAL_MS);
     expect(pollInterval('CONFIRMED', true, false)).toBe(false); // in-person: nothing to await
     expect(pollInterval('CONFIRMED', false, true)).toBe(false); // blurred
-    expect(pollInterval('IN_PROGRESS', true, true)).toBe(false); // Join already shown
+    expect(pollInterval('IN_PROGRESS', true, true)).toBe(POLL_INTERVAL_MS); // awaits COMPLETED → rating
+    expect(pollInterval('COMPLETED', true, true)).toBe(false); // terminal
   });
 
   it('unknown/loading status does not poll', () => {
