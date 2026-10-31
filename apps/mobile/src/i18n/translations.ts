@@ -272,6 +272,8 @@ export const sw = {
   'rating.submit': 'Tuma tathmini',
   'rating.thanks': 'Asante kwa tathmini yako!',
   'rating.yours': 'Tathmini yako',
+  'rating.skip': 'Ruka',
+  'rating.later': 'Unaweza kutoa tathmini baadaye kwenye maelezo ya miadi.',
 } as const;
 
 export type TranslationKey = keyof typeof sw;
@@ -515,6 +517,8 @@ export const en: Record<TranslationKey, string> = {
   'rating.submit': 'Submit rating',
   'rating.thanks': 'Thank you for your feedback!',
   'rating.yours': 'Your rating',
+  'rating.skip': 'Skip',
+  'rating.later': 'You can rate later from Appointment details.',
   'doctor.comingSoon.title': 'Doctor app coming soon',
   'doctor.comingSoon.body':
     'Doctor services are currently available through the website. The mobile app for doctors is coming soon.',

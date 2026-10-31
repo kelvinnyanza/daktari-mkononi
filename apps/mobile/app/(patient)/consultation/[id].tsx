@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -21,9 +22,11 @@ import { chatReducer, initialChatState, type ChatEntry } from '../../../src/feat
 import { waitingRoomTransition } from '../../../src/features/consultation/waiting-room';
 import { VideoCallView, type VideoCallHandle } from '../../../src/features/consultation/VideoCallView';
 import { useCallKeepAwake } from '../../../src/features/consultation/use-call-keep-awake';
+import { postCallStep } from '../../../src/features/rating/post-call';
+import { RatingSection } from '../../../src/features/rating/RatingSection';
 import { useT } from '../../../src/i18n';
 import { API_BASE_URL } from '../../../src/services/config';
-import { authApi, consultationApi } from '../../../src/services/endpoints';
+import { authApi, consultationApi, ratingApi } from '../../../src/services/endpoints';
 import {
   ConsultationSocket,
   deriveWsBaseUrl,
@@ -336,46 +339,70 @@ function EndedState({
   usedUp: boolean;
 }): React.JSX.Element {
   const t = useT();
-  // Is a medical record linked yet? (generated on completion)
-  const record = useQuery({
-    queryKey: ['record-for-consultation', consultationId],
-    queryFn: () => consultationApi.get(consultationId),
-    enabled: !interrupted,
+  const back = (): void =>
+    appointmentId !== undefined
+      ? router.replace({ pathname: '/(patient)/appointments/[id]', params: { id: appointmentId } })
+      : router.back();
+
+  if (interrupted) {
+    return (
+      <View style={styles.endedBox}>
+        <Text style={styles.endedTitle}>{t('consult.ended.interrupted')}</Text>
+        <Body>{usedUp ? t('consult.ended.interrupted.usedUp') : t('consult.ended.interrupted.canRestart')}</Body>
+        {usedUp ? <Button label={t('consult.ended.support')} onPress={() => router.replace('/(patient)/home')} /> : null}
+        <Button label={t('common.back')} onPress={back} />
+      </View>
+    );
+  }
+  return <CompletedFlow consultationId={consultationId} appointmentId={appointmentId} onBack={back} />;
+}
+
+/**
+ * Completed → optional rating (with Ruka / Skip) → medical record. Rating can
+ * never block the record: see postCallStep. A skipped rating stays on
+ * Appointment details.
+ */
+function CompletedFlow({
+  appointmentId,
+  onBack,
+}: {
+  consultationId: string;
+  appointmentId: string | undefined;
+  onBack: () => void;
+}): React.JSX.Element {
+  const t = useT();
+  const [skipped, setSkipped] = useState(false);
+  const [rated, setRated] = useState(false);
+  const status = useQuery({
+    queryKey: ['rating', appointmentId],
+    queryFn: () => ratingApi.statusForAppointment(appointmentId ?? ''),
+    enabled: appointmentId !== undefined,
+    retry: false,
   });
-  void record; // status already known; record linkage surfaced via records tab
+  const step = postCallStep({
+    appointmentId,
+    skipped,
+    rated,
+    status: { isError: status.isError, data: status.data },
+  });
+
+  if (step === 'rate' && appointmentId !== undefined) {
+    return (
+      <ScrollView contentContainerStyle={styles.endedScroll}>
+        <Text style={styles.endedTitle}>{t('consult.ended.completed')}</Text>
+        <RatingSection appointmentId={appointmentId} onDone={() => setRated(true)} />
+        <Button label={t('rating.skip')} onPress={() => setSkipped(true)} />
+      </ScrollView>
+    );
+  }
 
   return (
     <View style={styles.endedBox}>
-      <Text style={styles.endedTitle}>
-        {interrupted ? t('consult.ended.interrupted') : t('consult.ended.completed')}
-      </Text>
-      {interrupted ? (
-        <Body>
-          {usedUp
-            ? t('consult.ended.interrupted.usedUp')
-            : t('consult.ended.interrupted.canRestart')}
-        </Body>
-      ) : null}
-
-      {!interrupted && appointmentId !== undefined ? (
-        <Button
-          label={t('consult.ended.viewRecord')}
-          onPress={() => router.replace('/(patient)/records')}
-        />
-      ) : null}
-
-      {interrupted && usedUp ? (
-        <Button label={t('consult.ended.support')} onPress={() => router.replace('/(patient)/home')} />
-      ) : null}
-
-      <Button
-        label={t('common.back')}
-        onPress={() =>
-          appointmentId !== undefined
-            ? router.replace({ pathname: '/(patient)/appointments/[id]', params: { id: appointmentId } })
-            : router.back()
-        }
-      />
+      <Text style={styles.endedTitle}>{t('consult.ended.completed')}</Text>
+      {rated ? <Body>{t('rating.thanks')}</Body> : null}
+      {skipped ? <Body muted>{t('rating.later')}</Body> : null}
+      <Button label={t('consult.ended.viewRecord')} onPress={() => router.replace('/(patient)/records')} />
+      <Button label={t('common.back')} onPress={onBack} />
     </View>
   );
 }
@@ -447,4 +474,5 @@ const styles = StyleSheet.create({
   },
   endedBox: { flex: 1, justifyContent: 'center', padding: spacing.lg, gap: spacing.md },
   endedTitle: { ...typography.title, color: colors.text, textAlign: 'center' },
+  endedScroll: { padding: spacing.lg, gap: spacing.md },
 });
