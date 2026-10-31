@@ -20,6 +20,7 @@ import { Body, Button, LoadingState } from '../../../src/components/ui';
 import { chatReducer, initialChatState, type ChatEntry } from '../../../src/features/consultation/chat-reducer';
 import { waitingRoomTransition } from '../../../src/features/consultation/waiting-room';
 import { VideoCallView, type VideoCallHandle } from '../../../src/features/consultation/VideoCallView';
+import { useCallKeepAwake } from '../../../src/features/consultation/use-call-keep-awake';
 import { useT } from '../../../src/i18n';
 import { API_BASE_URL } from '../../../src/services/config';
 import { authApi, consultationApi } from '../../../src/services/endpoints';
@@ -150,6 +151,10 @@ export default function ConsultationScreen(): React.JSX.Element {
     void queryClient.invalidateQueries({ queryKey: ['consultation-status', appointmentId] });
     void queryClient.invalidateQueries({ queryKey: ['rating', appointmentId] });
   }, [phase, appointmentId, queryClient]);
+
+  // Screen stays awake only during the live call (focused + foreground);
+  // released when the call ends or the screen is left.
+  useCallKeepAwake(phase === 'in-call');
 
   const sendChat = useCallback(
     (body: string): void => {

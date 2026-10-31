@@ -29,15 +29,54 @@
   },
   "pnpm": {
     "packageExtensions": {
-      "@tanstack/react-query": { "peerDependencies": { "@types/react": "*" } },
-      "@react-navigation/native": { "peerDependencies": { "@types/react": "*" } },
-      "@react-navigation/core": { "peerDependencies": { "@types/react": "*" } },
-      "@react-navigation/elements": { "peerDependencies": { "@types/react": "*" } },
-      "@react-navigation/bottom-tabs": { "peerDependencies": { "@types/react": "*" } },
-      "@react-navigation/native-stack": { "peerDependencies": { "@types/react": "*" } },
-      "expo-router": { "peerDependencies": { "@types/react": "*" } },
-      "@daily-co/react-native-daily-js": { "peerDependencies": { "react": "*" } },
-      "@daily-co/react-native-webrtc": { "peerDependencies": { "react": "*" } }
+      "@tanstack/react-query": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@react-navigation/native": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@react-navigation/core": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@react-navigation/elements": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@react-navigation/bottom-tabs": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@react-navigation/native-stack": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "expo-router": {
+        "peerDependencies": {
+          "@types/react": "*"
+        }
+      },
+      "@daily-co/react-native-daily-js": {
+        "peerDependencies": {
+          "react": "*"
+        }
+      },
+      "@daily-co/react-native-webrtc": {
+        "peerDependencies": {
+          "react": "*"
+        }
+      }
+    },
+    "patchedDependencies": {
+      "expo-keep-awake@15.0.8": "patches/expo-keep-awake@15.0.8.patch"
     }
   },
   "devDependencies": {

@@ -1,0 +1,29 @@
+diff --git a/src/index.ts b/src/index.ts
+index b7a856e4c9efc5af139591c37a84d74ecde21b3b..f9ce14d4becc9fb3b5460fa4c7206d8db448d6d6 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -30,11 +30,19 @@ export function useKeepAwake(tag?: string, options?: KeepAwakeOptions): void {
+ 
+   useEffect(() => {
+     let isMounted = true;
+-    activateKeepAwakeAsync(tagOrDefault).then(() => {
+-      if (isMounted && ExpoKeepAwake.addListenerForTag && options?.listener) {
+-        addListener(tagOrDefault, options.listener);
+-      }
+-    });
++    activateKeepAwakeAsync(tagOrDefault)
++      .then(() => {
++        if (isMounted && ExpoKeepAwake.addListenerForTag && options?.listener) {
++          addListener(tagOrDefault, options.listener);
++        }
++      })
++      // Daktari patch: Android rejects with "Unable to activate keep awake"
++      // when there is no foreground Activity (e.g. a dev reload with the
++      // screen off). Expo's dev-only withDevTools calls this hook at the app
++      // root; without a catch that became an unhandled promise rejection.
++      .catch((error: unknown) => {
++        console.warn('[expo-keep-awake] activation skipped:', error instanceof Error ? error.message : error);
++      });
+     return () => {
+       isMounted = false;
+       if (options?.suppressDeactivateWarnings) {
