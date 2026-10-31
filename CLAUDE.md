@@ -166,10 +166,14 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
   19.2 (Next 15.5). Same major, but each app resolves its **own**
   `@types/react` (19.1.x vs 19.2.x). Libraries that ship types importing
   `react` without declaring `@types/react` must be listed under
-  `packageExtensions` in `pnpm-workspace.yaml` with a **non-optional**
+  `pnpm.packageExtensions` in the **root `package.json`** (pnpm 9 ignores
+  `packageExtensions` in `pnpm-workspace.yaml`) with a **non-optional**
   `@types/react` peer — otherwise they resolve through pnpm's single hoisted
   copy and one app type-checks against the other's React ("X cannot be used as
-  a JSX component"). Do not fix this with tsconfig `paths`: jest-expo turns
+  a JSX component"). The same applies at **runtime**: a native lib importing
+  `react` with no peer (e.g. `@daily-co/react-native-daily-js`) bundles the
+  web's React into mobile ("Invalid hook call") — give it a `react` peer there;
+  `apps/mobile/metro.config.js` also pins `react/*` to the app's copy. Do not fix this with tsconfig `paths`: jest-expo turns
   mobile's `paths` into runtime `moduleNameMapper` entries and breaks its test
   resolver (web no longer pins `react` via `paths` either).
 - Node >= 20, pnpm >= 9. ESM (`"type": "module"`, NodeNext resolution — relative

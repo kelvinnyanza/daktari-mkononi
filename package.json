@@ -27,6 +27,19 @@
     "db:push": "pnpm --filter @daktari/db db:push",
     "db:seed": "pnpm --filter @daktari/db db:seed"
   },
+  "pnpm": {
+    "packageExtensions": {
+      "@tanstack/react-query": { "peerDependencies": { "@types/react": "*" } },
+      "@react-navigation/native": { "peerDependencies": { "@types/react": "*" } },
+      "@react-navigation/core": { "peerDependencies": { "@types/react": "*" } },
+      "@react-navigation/elements": { "peerDependencies": { "@types/react": "*" } },
+      "@react-navigation/bottom-tabs": { "peerDependencies": { "@types/react": "*" } },
+      "@react-navigation/native-stack": { "peerDependencies": { "@types/react": "*" } },
+      "expo-router": { "peerDependencies": { "@types/react": "*" } },
+      "@daily-co/react-native-daily-js": { "peerDependencies": { "react": "*" } },
+      "@daily-co/react-native-webrtc": { "peerDependencies": { "react": "*" } }
+    }
+  },
   "devDependencies": {
     "@daktari/config": "workspace:*",
     "@eslint/js": "^9.30.0",
