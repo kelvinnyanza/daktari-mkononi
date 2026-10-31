@@ -9,7 +9,8 @@
     "start": "next start -p 3000",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src --max-warnings 0",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:single-copy": "node scripts/check-single-copy.mjs .next"
   },
   "dependencies": {
     "@daily-co/daily-js": "^0.94.0",

@@ -18,7 +18,7 @@ vi.mock('@/lib/api', () => ({
   ApiError: class ApiError extends Error {},
 }));
 
-import DoctorTodayPage from './page';
+import { TodayView as DoctorTodayPage } from './today-view';
 
 /** 09:15 EAT on 20 July 2026 = 06:15 UTC. */
 const FIXED_NOW = new Date('2026-07-20T06:15:00.000Z');
