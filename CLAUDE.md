@@ -59,10 +59,27 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
   appointment, `idempotencyKey = appointmentId:attempt`, guarded status
   transitions so webhook replays/reconciliation can never double-apply.
   Webhooks answer 200 even for unknown references (audited) — never teach the
-  provider to retry. Doctor earnings are **accrual-only**: consultation
-  COMPLETED creates a PENDING `DoctorPayment` row from `doctorAmountTzs`
-  (reference `consultation:<id>`, one per consultation); payout execution
-  (bulk disbursement) is a later phase.
+  provider to retry. Consultation COMPLETED creates a PENDING `DoctorPayment`
+  from `doctorAmountTzs` (reference `consultation:<id>`, one per
+  consultation).
+- **AzamPay trust model (13a):** built to AzamPay's published OpenAPI
+  (`docs/vendor/`). Callbacks carry an RSA-SHA256 signature verified with the
+  key from `GET /azampay/v1/public-key` (no HMAC, no webhook secret); a valid
+  callback is still **confirmed with a status query** before anything is
+  applied, unsigned callbacks only trigger that query, and a signed-vs-status
+  disagreement is flagged, never applied. Disbursement callbacks are never
+  trusted. A timeout / 5xx on a money-moving call is `OUTCOME_UNKNOWN`: never
+  mark it failed, never resend it blind. A success for a non-payable
+  appointment is a LATE_SUCCESS (no confirm, auto-refund, admin review);
+  amount ≠ owed is AMOUNT_MISMATCH (no confirm, no auto-refund).
+- **Refunds and payouts are AzamPay disbursements** (AzamPay has no refund
+  API); the documented disbursement API pays only tigo / airtel / azampesa —
+  M-Pesa, Halopesa and bank destinations are paid manually with a recorded
+  reference. Every refund/payout is claimed by a guarded transition with a
+  per-attempt reference (`r<n>-<paymentId>`, `p<n>-<itemId>`, ≤ 30 chars), an
+  earning is reserved by at most one payout item (`payoutItemId: null` in the
+  WHERE), and a refund after payout becomes a negative ADJUSTMENT netted from
+  the next payout.
 - **Time & timezone:** every timestamp is **stored in UTC**; schedules and
   availability are **computed in Africa/Dar_es_Salaam (EAT, UTC+3, no DST)** —
   pure +3h arithmetic, no tz database (`services/api-server/src/lib/eat-time.ts`).

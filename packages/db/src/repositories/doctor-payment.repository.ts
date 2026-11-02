@@ -34,9 +34,9 @@ export interface CreateAccrualInput {
 }
 
 /**
- * Doctor earnings accruals. Payout EXECUTION (bulk disbursement) is a later
- * phase — rows are created PENDING on consultation completion and only summed
- * here (see CLAUDE.md).
+ * Doctor earnings: created PENDING on consultation completion (or as a
+ * negative ADJUSTMENT after a refund of a paid-out earning). Payout runs
+ * reserve and settle them via payout.repository.ts (see CLAUDE.md).
  */
 export const doctorPaymentRepository = {
   /** Create the accrual once; replays of consultation completion are no-ops. */

@@ -17,6 +17,14 @@ import {
   type RefundResult,
 } from './port.js';
 
+/**
+ * One RSA keypair for every FakePayments, generated on first use: 2048-bit
+ * generation costs ~100ms, and most tests never touch callback signatures.
+ */
+let sharedKeys: ReturnType<typeof generateKeyPairSync> | null = null;
+const fakeKeys = (): ReturnType<typeof generateKeyPairSync> =>
+  (sharedKeys ??= generateKeyPairSync('rsa', { modulusLength: 2048 }));
+
 type CollectionScript =
   | { kind: 'pending' }
   | { kind: 'failed' }
@@ -51,9 +59,10 @@ export class FakePayments implements MobileMoneyPort {
   readonly providerStatuses = new Map<string, ScriptedStatus>();
   /** MSISDN / account → holder name returned by nameLookup (missing ⇒ not found). */
   readonly accountNames = new Map<string, string>();
-  private readonly keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
   /** The PEM a test would "fetch" from /azampay/v1/public-key. */
-  readonly publicKeyPem = this.keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  get publicKeyPem(): string {
+    return fakeKeys().publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  }
   /** Set to simulate the public-key fetch failing. */
   publicKeyUnavailable = false;
 
@@ -176,7 +185,7 @@ export class FakePayments implements MobileMoneyPort {
   /** Sign `data` the way AzamPay does (RSA-SHA256, PKCS#1 v1.5, base64). */
   sign(data: string): string {
     return signData('sha256', Buffer.from(data, 'utf8'), {
-      key: this.keys.privateKey,
+      key: fakeKeys().privateKey,
       padding: constants.RSA_PKCS1_PADDING,
     }).toString('base64');
   }
