@@ -39,6 +39,8 @@ import { PaymentService } from './modules/payments/payment.service.js';
 import { FeeSettingsService } from './modules/payments/fee-settings.service.js';
 import { PayoutService } from './modules/payouts/payout.service.js';
 import { buildPayoutRoutes } from './modules/payouts/payout.routes.js';
+import { FinanceService } from './modules/reports/finance.service.js';
+import { buildReportRoutes } from './modules/reports/reports.routes.js';
 import { buildPaymentRoutes } from './modules/payments/payment.routes.js';
 import { buildAzamPayWebhookRoutes } from './modules/payments/webhook.routes.js';
 import { buildDevRoutes } from './modules/dev/dev.routes.js';
@@ -294,6 +296,13 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
   });
   await app.register(buildPayoutRoutes(payoutService, options.deps.sessions, now), {
     prefix: '/api/v1',
+  });
+  const financeService = new FinanceService(
+    { finance: options.deps.finance, auditLogs: options.deps.auditLogs },
+    now,
+  );
+  await app.register(buildReportRoutes(financeService, options.deps.sessions, now), {
+    prefix: '/api/v1/admin',
   });
   await app.register(
     buildAzamPayWebhookRoutes(

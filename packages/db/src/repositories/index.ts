@@ -28,6 +28,7 @@ export type { AdminPaymentFilters, CreatePaymentInput } from './payment.reposito
 export { doctorPaymentRepository } from './doctor-payment.repository.js';
 export { feeSettingsRepository } from './fee-settings.repository.js';
 export { payoutRepository } from './payout.repository.js';
+export { financeRepository } from './finance.repository.js';
 export type {
   DraftPayoutDoctor,
   PayoutBatchWithItems,

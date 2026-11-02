@@ -8,6 +8,7 @@ import type {
   DoctorPayment,
   FeeSettings,
   Payment,
+  PayoutItem,
   ConsultationMessage,
   ConsultationRating,
   CreateAppointmentInput,
@@ -190,6 +191,7 @@ export interface FakeDeps extends AppDeps {
     paymentRows: Map<string, Payment>;
     doctorPaymentRows: Map<string, DoctorPayment>;
     feeSettingsRows: FeeSettings[];
+    payoutItems: Map<string, PayoutItem>;
     insurances: Map<string, PatientInsurance>;
     sessions: Map<string, Session>;
     otps: Map<string, OtpCode>;
@@ -310,6 +312,7 @@ export function makeFakeDeps(): FakeDeps {
       paymentRows,
       doctorPaymentRows,
       feeSettingsRows,
+      payoutItems: fakePayouts.items,
       insurances,
       sessions,
       otps,
@@ -1214,6 +1217,48 @@ export function makeFakeDeps(): FakeDeps {
     },
 
     payouts: fakePayouts.repo,
+
+    finance: {
+      paymentsPaidBetween: (from, to) =>
+        Promise.resolve(
+          [...paymentRows.values()].filter(
+            (row) =>
+              row.paidAt !== null &&
+              row.paidAt >= from &&
+              row.paidAt < to &&
+              (row.status === 'COMPLETED' || row.status === 'REFUNDED'),
+          ),
+        ),
+      paymentsRefundedBetween: (from, to) =>
+        Promise.resolve(
+          [...paymentRows.values()].filter(
+            (row) => row.refundedAt !== null && row.refundedAt >= from && row.refundedAt < to && row.status === 'REFUNDED',
+          ),
+        ),
+      payoutItemsPaidBetween: (from, to) =>
+        Promise.resolve(
+          [...fakePayouts.items.values()].filter(
+            (item) => item.paidAt !== null && item.paidAt >= from && item.paidAt < to && item.status === 'PAID',
+          ),
+        ),
+      findByAnyReference: (refs) => {
+        const wanted = new Set(refs);
+        const has = (value: string | null): boolean => value !== null && wanted.has(value);
+        return Promise.resolve({
+          payments: [...paymentRows.values()].filter(
+            (row) =>
+              has(row.idempotencyKey) || has(row.aggregatorTransactionId) || has(row.externalReference) || has(row.refundReference),
+          ),
+          payoutItems: [...fakePayouts.items.values()].filter((item) => has(item.reference) || has(item.providerReference)),
+        });
+      },
+      recordStatementFee: (paymentId, feeTzs) => {
+        const row = paymentRows.get(paymentId);
+        if (!row || row.providerFeeTzs !== null) return Promise.resolve(false);
+        paymentRows.set(paymentId, { ...row, providerFeeTzs: feeTzs, providerFeeSource: 'STATEMENT' });
+        return Promise.resolve(true);
+      },
+    },
 
     feeSettings: {
       findEffective: (at) =>

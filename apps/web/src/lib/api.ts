@@ -121,6 +121,8 @@ export interface RequestOptions {
   /** Skip the Authorization header (login, refresh). */
   anonymous?: boolean;
   signal?: AbortSignal;
+  /** Return the body as text (CSV exports) instead of parsing JSON. */
+  text?: boolean;
 }
 
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
@@ -196,6 +198,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (response.status === 204) {
     return undefined as T;
   }
+  if (options.text === true) return (await response.text()) as T;
   return (await response.json()) as T;
 }
 
@@ -203,6 +206,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 export const api = {
   get: <T>(path: string, signal?: AbortSignal): Promise<T> =>
     apiRequest<T>(path, signal !== undefined ? { signal } : {}),
+  /** Authenticated text download (CSV) — same refresh/retry rules as JSON calls. */
+  getText: (path: string): Promise<string> => apiRequest<string>(path, { text: true }),
   post: <T>(path: string, body?: unknown): Promise<T> =>
     apiRequest<T>(path, { method: 'POST', ...(body !== undefined ? { body } : {}) }),
   patch: <T>(path: string, body?: unknown): Promise<T> =>

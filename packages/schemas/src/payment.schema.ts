@@ -137,3 +137,21 @@ export const completeRefundManuallySchema = z.object({
   reference: z.string().trim().min(3).max(120),
   note: z.string().trim().min(3).max(500),
 });
+
+// ── Finance reports & reconciliation (Phase 13a) ────────────────────────────
+
+const eatDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD (EAT)');
+
+/** GET /api/v1/admin/reports/finance(.csv)?from=YYYY-MM-DD&to=YYYY-MM-DD — EAT dates, inclusive. */
+export const financeReportQuerySchema = z.object({
+  from: eatDateSchema,
+  to: eatDateSchema,
+});
+
+/** POST /api/v1/admin/reconciliation/azampay — statement CSV as text (≤ 4 MB). */
+export const reconciliationImportSchema = z.object({
+  csv: z.string().min(1).max(4_000_000),
+  from: eatDateSchema.optional(),
+  to: eatDateSchema.optional(),
+  applyFees: z.boolean().default(false),
+});

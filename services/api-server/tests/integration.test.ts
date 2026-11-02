@@ -92,6 +92,7 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
         doctorPayments: db.doctorPaymentRepository,
         feeSettings: db.feeSettingsRepository,
         payouts: db.payoutRepository,
+        finance: db.financeRepository,
         mobileMoney: fakePayments,
         storage: new FakeStorage(),
         video: new FakeVideo(),

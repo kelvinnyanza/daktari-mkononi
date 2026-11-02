@@ -351,6 +351,14 @@ export interface PayoutRepoPort {
   listItemsForDoctor(doctorId: string, limit?: number): Promise<PayoutItem[]>;
 }
 
+export interface FinanceRepoPort {
+  paymentsPaidBetween(from: Date, to: Date): Promise<Payment[]>;
+  paymentsRefundedBetween(from: Date, to: Date): Promise<Payment[]>;
+  payoutItemsPaidBetween(from: Date, to: Date): Promise<PayoutItem[]>;
+  findByAnyReference(refs: string[]): Promise<{ payments: Payment[]; payoutItems: PayoutItem[] }>;
+  recordStatementFee(paymentId: string, feeTzs: number): Promise<boolean>;
+}
+
 export interface DoctorPaymentRepoPort {
   createIfMissing(input: CreateAccrualInput): Promise<DoctorPayment | null>;
   totalsByStatus(doctorId: string): Promise<Record<DoctorPaymentStatus, number>>;
@@ -405,6 +413,7 @@ export interface AppDeps {
   doctorPayments: DoctorPaymentRepoPort;
   feeSettings: FeeSettingsRepoPort;
   payouts: PayoutRepoPort;
+  finance: FinanceRepoPort;
   mobileMoney: MobileMoneyPort;
   storage: StoragePort;
   video: VideoPort;
