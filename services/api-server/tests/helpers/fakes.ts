@@ -6,6 +6,7 @@ import type {
   Appointment,
   Consultation,
   DoctorPayment,
+  FeeSettings,
   Payment,
   ConsultationMessage,
   ConsultationRating,
@@ -100,6 +101,7 @@ export function makeDoctor(userId: string, overrides: Partial<Doctor> = {}): Doc
     subSpecialty: null,
     yearsOfExperience: 5,
     consultationFeeTzs: 20_000,
+    commissionOverrideBps: null,
     bio: null,
     languages: ['sw'],
     verificationStatus: 'PENDING',
@@ -186,6 +188,7 @@ export interface FakeDeps extends AppDeps {
     screenings: Map<string, AIScreeningResult>;
     paymentRows: Map<string, Payment>;
     doctorPaymentRows: Map<string, DoctorPayment>;
+    feeSettingsRows: FeeSettings[];
     insurances: Map<string, PatientInsurance>;
     sessions: Map<string, Session>;
     otps: Map<string, OtpCode>;
@@ -213,6 +216,7 @@ export function makeFakeDeps(): FakeDeps {
   const screenings = new Map<string, AIScreeningResult>();
   const paymentRows = new Map<string, Payment>();
   const doctorPaymentRows = new Map<string, DoctorPayment>();
+  const feeSettingsRows: FeeSettings[] = [];
   const insurances = new Map<string, PatientInsurance>();
   const sessions = new Map<string, Session>();
   const otps = new Map<string, OtpCode>();
@@ -303,6 +307,7 @@ export function makeFakeDeps(): FakeDeps {
       screenings,
       paymentRows,
       doctorPaymentRows,
+      feeSettingsRows,
       insurances,
       sessions,
       otps,
@@ -994,7 +999,14 @@ export function makeFakeDeps(): FakeDeps {
           deliveryId: null,
           amountTzs: input.amountTzs,
           platformFeeTzs: input.platformFeeTzs,
+          vatTzs: input.vatTzs,
           doctorAmountTzs: input.doctorAmountTzs,
+          commissionBps: input.commissionBps,
+          vatBps: input.vatBps,
+          vatMode: input.vatMode,
+          feeSettingsId: input.feeSettingsId,
+          providerFeeTzs: null,
+          providerFeeSource: null,
           method: input.method,
           status: 'PENDING',
           idempotencyKey: input.idempotencyKey,
@@ -1117,6 +1129,7 @@ export function makeFakeDeps(): FakeDeps {
           periodEnd: input.periodEnd,
           status: 'PENDING',
           reference: input.reference,
+          paymentId: input.paymentId,
           paidAt: null,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -1130,10 +1143,49 @@ export function makeFakeDeps(): FakeDeps {
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         const start = (query.page - 1) * query.pageSize;
         return Promise.resolve({
-          items: all.slice(start, start + query.pageSize),
+          items: all.slice(start, start + query.pageSize).map((row) => {
+            const payment = row.paymentId === null ? undefined : paymentRows.get(row.paymentId);
+            return {
+              ...row,
+              payment:
+                payment === undefined
+                  ? null
+                  : {
+                      amountTzs: payment.amountTzs,
+                      platformFeeTzs: payment.platformFeeTzs,
+                      vatTzs: payment.vatTzs,
+                      doctorAmountTzs: payment.doctorAmountTzs,
+                      commissionBps: payment.commissionBps,
+                      vatBps: payment.vatBps,
+                      vatMode: payment.vatMode,
+                    },
+            };
+          }),
           total: all.length,
           totalAmountTzs: all.reduce((sum, row) => sum + row.amountTzs, 0),
         });
+      },
+    },
+
+    feeSettings: {
+      findEffective: (at) =>
+        Promise.resolve(
+          [...feeSettingsRows]
+            .filter((row) => row.effectiveFrom <= at)
+            .sort(
+              (a, b) =>
+                b.effectiveFrom.getTime() - a.effectiveFrom.getTime() ||
+                b.createdAt.getTime() - a.createdAt.getTime(),
+            )[0] ?? null,
+        ),
+      listHistory: () =>
+        Promise.resolve(
+          [...feeSettingsRows].sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime()),
+        ),
+      create: (input) => {
+        const row: FeeSettings = { id: randomUUID(), ...input, createdAt: new Date() };
+        feeSettingsRows.push(row);
+        return Promise.resolve(row);
       },
     },
 

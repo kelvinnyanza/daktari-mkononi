@@ -1,42 +1,100 @@
 ﻿import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PLATFORM_FEE_PERCENT, splitFee } from '../src/money.js';
+import {
+  DEFAULT_FEE_RATES,
+  MAX_COMMISSION_BPS,
+  MAX_VAT_BPS,
+  calculateFees,
+  percentToBps,
+} from '../src/money.js';
 import { MNO_PREFIXES, deriveMno } from '../src/mno-prefixes.js';
 import { AzamPayProvider, verifyAzamPayWebhookSignature } from '../src/azampay.js';
 import { FakePayments } from '../src/fake.js';
 
-describe('splitFee (money invariants)', () => {
-  it('holds the invariant platformFee + doctorAmount === amount across many random amounts', () => {
-    // Property-style: 10,000 random integer amounts × several fee levels.
-    for (let i = 0; i < 10_000; i += 1) {
-      const amount = Math.floor(Math.random() * 1_000_000);
-      const feePercent = [0, 5, 10, 15, 33, 50, 100][i % 7]!;
-      const { platformFeeTzs, doctorAmountTzs } = splitFee(amount, feePercent);
+describe('calculateFees (money invariants, Phase 13a)', () => {
+  const MODES = ['ON_TOP_OF_COMMISSION', 'INCLUDED_IN_COMMISSION'] as const;
 
-      expect(platformFeeTzs + doctorAmountTzs).toBe(amount); // never a shilling lost
-      expect(Number.isSafeInteger(platformFeeTzs)).toBe(true);
-      expect(Number.isSafeInteger(doctorAmountTzs)).toBe(true);
-      expect(platformFeeTzs).toBeGreaterThanOrEqual(0);
-      expect(doctorAmountTzs).toBeGreaterThanOrEqual(0);
+  it('property: parts always sum exactly to the fee and nothing is negative, across random fees and rates', () => {
+    // Deterministic PRNG so a failure is reproducible.
+    let seed = 0x13a;
+    const rand = (max: number): number => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed % (max + 1);
+    };
+    for (let i = 0; i < 20_000; i += 1) {
+      const fee = i % 10 === 0 ? rand(20) : rand(5_000_000); // tiny fees hit rounding edges
+      const rates = {
+        commissionBps: rand(MAX_COMMISSION_BPS),
+        vatEnabled: rand(1) === 1,
+        vatBps: rand(MAX_VAT_BPS),
+        vatMode: MODES[rand(1)]!,
+      };
+      const parts = calculateFees(fee, rates);
+      expect(parts.platformCommissionTzs + parts.vatTzs + parts.doctorAmountTzs).toBe(fee);
+      for (const value of [parts.platformCommissionTzs, parts.vatTzs, parts.doctorAmountTzs]) {
+        expect(Number.isSafeInteger(value)).toBe(true);
+        expect(value).toBeGreaterThanOrEqual(0);
+      }
+      expect(parts.deductedFromDoctorTzs).toBe(fee - parts.doctorAmountTzs);
+      if (!rates.vatEnabled) expect(parts.vatTzs).toBe(0);
     }
   });
 
-  it('gives the rounding remainder to the platform', () => {
-    // 10% of 25,001: doctor floor(25001*90/100)=22500 (remainder 1 → platform)
-    expect(splitFee(25_001, 10)).toEqual({ platformFeeTzs: 2_501, doctorAmountTzs: 22_500 });
-    // Exact division: no remainder anywhere.
-    expect(splitFee(25_000, 10)).toEqual({ platformFeeTzs: 2_500, doctorAmountTzs: 22_500 });
-    // Tiny amounts: platform absorbs everything the floor drops.
-    expect(splitFee(1, 10)).toEqual({ platformFeeTzs: 1, doctorAmountTzs: 0 });
-    expect(splitFee(0, 10)).toEqual({ platformFeeTzs: 0, doctorAmountTzs: 0 });
+  it('worked examples (20% commission, 18% VAT on top — the defaults)', () => {
+    expect(DEFAULT_FEE_RATES).toEqual({
+      commissionBps: 2_000,
+      vatEnabled: true,
+      vatBps: 1_800,
+      vatMode: 'ON_TOP_OF_COMMISSION',
+    });
+    const at = (fee: number) => calculateFees(fee, DEFAULT_FEE_RATES);
+    expect(at(15_000)).toMatchObject({ platformCommissionTzs: 3_000, vatTzs: 540, doctorAmountTzs: 11_460 });
+    expect(at(20_000)).toMatchObject({ platformCommissionTzs: 4_000, vatTzs: 720, doctorAmountTzs: 15_280 });
+    expect(at(50_000)).toMatchObject({ platformCommissionTzs: 10_000, vatTzs: 1_800, doctorAmountTzs: 38_200 });
   });
 
-  it('rejects floats and out-of-range percents', () => {
-    expect(() => splitFee(100.5, 10)).toThrow(RangeError);
-    expect(() => splitFee(-1, 10)).toThrow(RangeError);
-    expect(() => splitFee(100, 12.5)).toThrow(RangeError);
-    expect(() => splitFee(100, 101)).toThrow(RangeError);
-    expect(DEFAULT_PLATFORM_FEE_PERCENT).toBe(10);
+  it('included mode: the commission already contains the VAT', () => {
+    const included = { ...DEFAULT_FEE_RATES, vatMode: 'INCLUDED_IN_COMMISSION' as const };
+    // 15,000 × 20% = 3,000 gross; VAT = round(3000 × 18/118) = round(457.63) = 458.
+    expect(calculateFees(15_000, included)).toMatchObject({
+      platformCommissionTzs: 2_542,
+      vatTzs: 458,
+      doctorAmountTzs: 12_000,
+      deductedFromDoctorTzs: 3_000,
+    });
+  });
+
+  it('rounds commission and VAT half-up; the doctor takes the exact residual', () => {
+    // 15,005 × 20% = 3,001; VAT 3,001 × 18% = 540.18 → 540; doctor 11,464.
+    expect(calculateFees(15_005, DEFAULT_FEE_RATES)).toMatchObject({
+      platformCommissionTzs: 3_001,
+      vatTzs: 540,
+      doctorAmountTzs: 11_464,
+    });
+    // 12,503 × 20% = 2,500.6 → 2,501; VAT 450.18 → 450.
+    expect(calculateFees(12_503, DEFAULT_FEE_RATES)).toMatchObject({ platformCommissionTzs: 2_501, vatTzs: 450 });
+    // Exactly .5 rounds up: 2.5 → 3 (fee 25 at 10%), VAT 18% of 3 = 0.54 → 1.
+    expect(calculateFees(25, { ...DEFAULT_FEE_RATES, commissionBps: 1_000 })).toMatchObject({
+      platformCommissionTzs: 3,
+      vatTzs: 1,
+      doctorAmountTzs: 21,
+    });
+    expect(calculateFees(15_000, { ...DEFAULT_FEE_RATES, vatEnabled: false })).toMatchObject({
+      platformCommissionTzs: 3_000,
+      vatTzs: 0,
+      doctorAmountTzs: 12_000,
+    });
+  });
+
+  it('rejects floats, negatives and out-of-range rates; percent ↔ bps is exact to 2 decimals', () => {
+    expect(() => calculateFees(100.5, DEFAULT_FEE_RATES)).toThrow(RangeError);
+    expect(() => calculateFees(-1, DEFAULT_FEE_RATES)).toThrow(RangeError);
+    expect(() => calculateFees(100, { ...DEFAULT_FEE_RATES, commissionBps: MAX_COMMISSION_BPS + 1 })).toThrow(RangeError);
+    expect(() => calculateFees(100, { ...DEFAULT_FEE_RATES, commissionBps: -1 })).toThrow(RangeError);
+    expect(() => calculateFees(100, { ...DEFAULT_FEE_RATES, vatBps: 12.5 })).toThrow(RangeError);
+    expect(percentToBps(20)).toBe(2_000);
+    expect(percentToBps(12.5)).toBe(1_250);
+    expect(percentToBps(12.345)).toBeNull();
   });
 });
 

@@ -22,12 +22,14 @@ import type {
   CreateOtpInput,
   CreatePatientUserInput,
   CreateAccrualInput,
+  CreateFeeSettingsInput,
   CreatePaymentInput,
   CreateRatingInput,
   CreateScreeningSessionInput,
   CreateSessionInput,
   Diagnosis,
   Doctor,
+  DoctorEarningRow,
   DoctorPayment,
   DoctorDocument,
   DoctorDocumentType,
@@ -35,6 +37,7 @@ import type {
   DoctorVerificationStatus,
   DoctorWithUser,
   DocumentReviewStatus,
+  FeeSettings,
   MedicalRecord,
   OtpCode,
   OtpPurpose,
@@ -138,6 +141,12 @@ export interface DoctorRepoPort {
     from: DoctorVerificationStatus,
     update: VerificationUpdate,
   ): Promise<Doctor | null>;
+}
+
+export interface FeeSettingsRepoPort {
+  findEffective(at: Date): Promise<FeeSettings | null>;
+  listHistory(limit?: number): Promise<FeeSettings[]>;
+  create(input: CreateFeeSettingsInput): Promise<FeeSettings>;
 }
 
 export interface DoctorDocumentRepoPort {
@@ -297,7 +306,7 @@ export interface DoctorPaymentRepoPort {
   listForDoctor(
     doctorId: string,
     query: { page: number; pageSize: number },
-  ): Promise<{ items: DoctorPayment[]; total: number; totalAmountTzs: number }>;
+  ): Promise<{ items: DoctorEarningRow[]; total: number; totalAmountTzs: number }>;
 }
 
 export interface AuditLogEntry {
@@ -341,6 +350,7 @@ export interface AppDeps {
   ai: AIProvider | null;
   paymentsRepo: PaymentRepoPort;
   doctorPayments: DoctorPaymentRepoPort;
+  feeSettings: FeeSettingsRepoPort;
   mobileMoney: MobileMoneyPort;
   storage: StoragePort;
   video: VideoPort;

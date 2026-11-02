@@ -26,7 +26,13 @@ export { prescriptionRepository } from './prescription.repository.js';
 export { paymentRepository } from './payment.repository.js';
 export type { AdminPaymentFilters, CreatePaymentInput } from './payment.repository.js';
 export { doctorPaymentRepository } from './doctor-payment.repository.js';
-export type { CreateAccrualInput } from './doctor-payment.repository.js';
+export { feeSettingsRepository } from './fee-settings.repository.js';
+export type { CreateFeeSettingsInput } from './fee-settings.repository.js';
+export type {
+  CreateAccrualInput,
+  DoctorEarningRow,
+  EarningPaymentBreakdown,
+} from './doctor-payment.repository.js';
 export { consultationRepository } from './consultation.repository.js';
 export type { AddDiagnosisInput, CreateConsultationInput } from './consultation.repository.js';
 export { consultationMessageRepository } from './consultation-message.repository.js';

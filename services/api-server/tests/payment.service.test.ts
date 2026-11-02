@@ -1,9 +1,10 @@
 import { createHmac } from 'node:crypto';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { splitFee } from '@daktari/payments';
+import { DEFAULT_FEE_RATES, calculateFees } from '@daktari/payments';
 import { applyTestEnv } from './helpers/env.js';
 import { makeFakeDeps, type FakeDeps } from './helpers/fakes.js';
 import { PaymentService } from '../src/modules/payments/payment.service.js';
+import { FeeSettingsService } from '../src/modules/payments/fee-settings.service.js';
 import { AppointmentService } from '../src/modules/appointments/appointment.service.js';
 import { ApiError } from '../src/lib/errors.js';
 
@@ -13,9 +14,14 @@ const SLOT = new Date('2026-07-20T06:00:00.000Z');
 let deps: FakeDeps;
 let clock: { now: Date };
 let payments: PaymentService;
+let fees: FeeSettingsService;
 let appointments: AppointmentService;
 
 function makeServices() {
+  fees = new FeeSettingsService(
+    { feeSettings: deps.feeSettings, doctors: deps.doctors, auditLogs: deps.auditLogs },
+    () => clock.now,
+  );
   payments = new PaymentService(
     {
       payments: deps.paymentsRepo,
@@ -26,6 +32,7 @@ function makeServices() {
       mobileMoney: deps.mobileMoney,
       sms: deps.sms,
       auditLogs: deps.auditLogs,
+      fees,
     },
     () => clock.now,
   );
@@ -75,11 +82,12 @@ async function bookedMobileMoney(feeTzs = 25_000) {
 describe('initiation', () => {
   it('booking creates ONE Payment row with the integer fee split and starts collection', async () => {
     const { payment } = await bookedMobileMoney(25_001);
-    const split = splitFee(25_001);
+    const split = calculateFees(25_001, DEFAULT_FEE_RATES);
     expect(payment.amountTzs).toBe(25_001);
-    expect(payment.platformFeeTzs).toBe(split.platformFeeTzs);
+    expect(payment.platformFeeTzs).toBe(split.platformCommissionTzs);
+    expect(payment.vatTzs).toBe(split.vatTzs);
     expect(payment.doctorAmountTzs).toBe(split.doctorAmountTzs);
-    expect(payment.platformFeeTzs + payment.doctorAmountTzs).toBe(25_001);
+    expect(payment.platformFeeTzs + payment.vatTzs + payment.doctorAmountTzs).toBe(25_001);
     expect(payment.method).toBe('MPESA'); // derived from the 074x prefix
     expect(payment.idempotencyKey).toBe(`${payment.appointmentId}:1`);
     expect(payment.status).toBe('PROCESSING');
@@ -302,7 +310,7 @@ describe('doctor earnings accrual', () => {
 
     const accruals = [...deps.state.doctorPaymentRows.values()];
     expect(accruals).toHaveLength(1);
-    expect(accruals[0]!.amountTzs).toBe(splitFee(25_001).doctorAmountTzs);
+    expect(accruals[0]!.amountTzs).toBe(calculateFees(25_001, DEFAULT_FEE_RATES).doctorAmountTzs);
     expect(accruals[0]!.status).toBe('PENDING'); // payout execution is a later phase
     expect(accruals[0]!.reference).toBe('consultation:consult-1');
 
@@ -310,7 +318,7 @@ describe('doctor earnings accrual', () => {
       deps.state.users.get(doctor.userId)!.id,
       { page: 1, pageSize: 10 },
     );
-    expect(earnings.totalAmountTzs).toBe(splitFee(25_001).doctorAmountTzs);
+    expect(earnings.totalAmountTzs).toBe(calculateFees(25_001, DEFAULT_FEE_RATES).doctorAmountTzs);
   });
 
   it('unpaid (NHIF/cash) appointments do not accrue in this phase', async () => {
@@ -615,5 +623,97 @@ describe('amount check + unknown outcomes (Phase 13a)', () => {
     });
     expect(result.outcome).toBe('applied');
     expect(deps.state.appointments.get(booked.id)!.status).toBe('CONFIRMED');
+  });
+});
+
+describe('fees & VAT settings (Phase 13a)', () => {
+  const admin = () => deps.seedUser({ role: 'PLATFORM_ADMIN' });
+
+  it('defaults to 20% commission + 18% VAT on top; 15,000 → 3,000 / 540 / 11,460 snapshotted on the payment', async () => {
+    const { payment } = await bookedMobileMoney(15_000);
+    expect(payment).toMatchObject({
+      platformFeeTzs: 3_000,
+      vatTzs: 540,
+      doctorAmountTzs: 11_460,
+      commissionBps: 2_000,
+      vatBps: 1_800,
+      vatMode: 'ON_TOP_OF_COMMISSION',
+      feeSettingsId: null,
+    });
+  });
+
+  it('a rate change applies to NEW payments only; history keeps its snapshot; change is audited', async () => {
+    const before = await bookedMobileMoney(15_000);
+    const adminUser = admin();
+    const saved = await fees.update(adminUser.id, {
+      commissionPercent: 15,
+      vatEnabled: false,
+      vatPercent: 18,
+      vatMode: 'ON_TOP_OF_COMMISSION',
+      minPayoutTzs: 5_000,
+      note: 'Promo rate',
+    });
+    expect(saved.commissionBps).toBe(1_500);
+    const audit = deps.state.auditEntries.find((entry) => entry.action === 'FEE_SETTINGS_CHANGED')!;
+    expect(audit.actorUserId).toBe(adminUser.id);
+    expect(JSON.stringify(audit.metadata)).toContain('"before"');
+
+    // Old payment untouched.
+    expect(deps.state.paymentRows.get(before.payment.id)!.platformFeeTzs).toBe(3_000);
+
+    // New booking with another doctor uses the new rate, VAT off.
+    const { doctor } = deps.seedDoctor({}, { verificationStatus: 'APPROVED', consultationFeeTzs: 20_000 });
+    const { user } = deps.seedPatient({ phone: '+255712000111' });
+    const booked = await appointments.book(user.id, {
+      doctorId: doctor.id,
+      type: 'VIDEO',
+      scheduledAt: new Date(SLOT.getTime() + 3_600_000),
+      reason: 'Kikohozi',
+      paymentIntent: 'MOBILE_MONEY',
+    });
+    const row = [...deps.state.paymentRows.values()].find((p) => p.appointmentId === booked.id)!;
+    expect(row).toMatchObject({ platformFeeTzs: 3_000, vatTzs: 0, doctorAmountTzs: 17_000, feeSettingsId: saved.id });
+  });
+
+  it('per-doctor override replaces the commission rate (audited); clearing it restores the platform rate', async () => {
+    const adminUser = admin();
+    const { doctor } = deps.seedDoctor({}, { verificationStatus: 'APPROVED', consultationFeeTzs: 50_000 });
+    await fees.setDoctorOverride(adminUser.id, doctor.id, { commissionPercent: 10, note: 'Partner hospital' });
+    expect((await fees.ratesFor(doctor.id)).rates.commissionBps).toBe(1_000);
+    const preview = await fees.preview(50_000, doctor.id);
+    expect(preview).toMatchObject({ platformCommissionTzs: 5_000, vatTzs: 900, doctorAmountTzs: 44_100 });
+    expect(deps.state.auditEntries.some((entry) => entry.action === 'FEE_OVERRIDE_CHANGED')).toBe(true);
+
+    await fees.setDoctorOverride(adminUser.id, doctor.id, { commissionPercent: null, note: 'Ended' });
+    expect((await fees.ratesFor(doctor.id)).rates.commissionBps).toBe(2_000);
+  });
+
+  it('future-dated rates wait for their date; back-dating is refused', async () => {
+    const adminUser = admin();
+    await fees.update(adminUser.id, {
+      commissionPercent: 25,
+      vatEnabled: true,
+      vatPercent: 18,
+      vatMode: 'INCLUDED_IN_COMMISSION',
+      minPayoutTzs: 10_000,
+      effectiveFrom: new Date(NOW.getTime() + 24 * 3_600_000),
+      note: 'Next month',
+    });
+    expect((await fees.current()).commissionBps).toBe(2_000); // not yet
+    clock.now = new Date(NOW.getTime() + 25 * 3_600_000);
+    expect((await fees.current()).commissionBps).toBe(2_500);
+
+    await expectApiError(
+      fees.update(adminUser.id, {
+        commissionPercent: 20,
+        vatEnabled: true,
+        vatPercent: 18,
+        vatMode: 'ON_TOP_OF_COMMISSION',
+        minPayoutTzs: 10_000,
+        effectiveFrom: new Date(NOW.getTime() - 3_600_000),
+        note: 'Oops',
+      }),
+      'FEE_SETTINGS_BACKDATED',
+    );
   });
 });

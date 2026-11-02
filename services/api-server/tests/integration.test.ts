@@ -87,6 +87,7 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
         ai: fakeAi,
         paymentsRepo: db.paymentRepository,
         doctorPayments: db.doctorPaymentRepository,
+        feeSettings: db.feeSettingsRepository,
         mobileMoney: fakePayments,
         storage: new FakeStorage(),
         video: new FakeVideo(),
@@ -795,8 +796,8 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
 
   it('money flow: book → pay → signed webhook → CONFIRMED → consultation COMPLETED → exact integer accrual', async () => {
     const { createHmac } = await import('node:crypto');
-    const { splitFee } = await import('@daktari/payments');
-    const FEE = 25_001; // odd amount so the remainder-to-platform rule is visible
+    const { DEFAULT_FEE_RATES, calculateFees } = await import('@daktari/payments');
+    const FEE = 25_001; // odd amount so the half-up rounding is visible
 
     const doctorUser = await db.prisma.user.create({
       data: {
@@ -904,7 +905,9 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
     expect(appointmentRow.status).toBe('CONFIRMED');
     const paymentRow = await db.prisma.payment.findUniqueOrThrow({ where: { appointmentId } });
     expect(paymentRow.status).toBe('COMPLETED');
-    expect(paymentRow.platformFeeTzs + paymentRow.doctorAmountTzs).toBe(FEE);
+    expect(paymentRow.platformFeeTzs + paymentRow.vatTzs + paymentRow.doctorAmountTzs).toBe(FEE);
+    expect(paymentRow.commissionBps).toBe(DEFAULT_FEE_RATES.commissionBps); // rates snapshotted
+    expect(paymentRow.vatBps).toBe(DEFAULT_FEE_RATES.vatBps);
 
     // Consultation start → notes → complete drives the accrual.
     const started = await services.consultations.start(doctorUser.id, appointmentId);
@@ -919,7 +922,8 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
     });
     expect(accrual.doctorId).toBe(doctorId);
     expect(accrual.status).toBe('PENDING'); // payout execution is a later phase
-    expect(accrual.amountTzs).toBe(splitFee(FEE).doctorAmountTzs);
-    expect(accrual.amountTzs + paymentRow.platformFeeTzs).toBe(FEE); // exact integer split
+    expect(accrual.amountTzs).toBe(calculateFees(FEE, DEFAULT_FEE_RATES).doctorAmountTzs);
+    expect(accrual.amountTzs + paymentRow.platformFeeTzs + paymentRow.vatTzs).toBe(FEE); // exact integer split
+    expect(accrual.paymentId).toBe(paymentRow.id);
   });
 });

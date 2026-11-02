@@ -1,5 +1,14 @@
-export { DEFAULT_PLATFORM_FEE_PERCENT, splitFee } from './money.js';
-export type { FeeSplit } from './money.js';
+export {
+  DEFAULT_FEE_RATES,
+  MAX_COMMISSION_BPS,
+  MAX_VAT_BPS,
+  bpsToPercent,
+  calculateFees,
+  percentToBps,
+  roundHalfUpDiv,
+  validateFeeRates,
+} from './money.js';
+export type { FeeBreakdown, FeeRates, VatMode } from './money.js';
 export { MobileMoneyError } from './port.js';
 export type {
   CollectionStatus,

@@ -42,11 +42,20 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
   Currency is **TZS only** — integer amounts, no decimal cents. Never use
   Safaricom Kenya Daraja endpoints; Tanzania M-Pesa (Vodacom TZ) goes through
   the aggregator.
-- **Money rules (Phase 7):** every money field is **whole TZS as `Int`** —
-  never Float, never cents. Fee splits use `splitFee(amountTzs, feePercent)`
-  from `@daktari/payments` (integer math; the **platform receives the rounding
-  remainder**; invariant `platformFeeTzs + doctorAmountTzs === amountTzs` is
-  property-tested). Payment mutations are idempotent: one Payment row per
+- **Money rules (Phase 7, fees reworked 13a):** every money field is **whole
+  TZS as `Int`** — never Float, never cents; rates are integer **basis
+  points** (2000 = 20%). Fee splits use `calculateFees(feeTzs, rates)` from
+  `@daktari/payments`: commission = round-half-up(fee × commission), VAT =
+  round-half-up(commission × VAT) (or the VAT-inclusive equivalent), the
+  **doctor receives the exact residual**; invariant
+  `platformFeeTzs + vatTzs + doctorAmountTzs === amountTzs` (platformFeeTzs is
+  commission EXCLUDING VAT) is property-tested. **VAT is charged on the
+  platform commission only — never on the consultation fee** (medical
+  services are VAT-exempt). Rates come from effective-dated, insert-only
+  `FeeSettings` rows (+ optional `Doctor.commissionOverrideBps`), all changes
+  audited, and every Payment **snapshots** the rates it used
+  (`commissionBps`/`vatBps`/`vatMode`) so a rate change never alters history.
+  Payment mutations are idempotent: one Payment row per
   appointment, `idempotencyKey = appointmentId:attempt`, guarded status
   transitions so webhook replays/reconciliation can never double-apply.
   Webhooks answer 200 even for unknown references (audited) — never teach the

@@ -18,7 +18,12 @@ interface PaymentRow {
   appointmentId: string | null;
   amountTzs: number;
   platformFeeTzs: number;
+  vatTzs: number;
   doctorAmountTzs: number;
+  commissionBps: number | null;
+  vatBps: number | null;
+  vatMode: string | null;
+  providerFeeTzs: number | null;
   method: string;
   status: string;
   attempt: number;
@@ -231,7 +236,19 @@ export default function AdminPaymentsPage() {
                     platformFee + doctorAmount === amount is property-tested
                     there, so any drift here is visible at a glance. */}
                 <Row label={t('payments.platformFee')} value={formatTzs(detail.platformFeeTzs)} />
+                <Row label={t('payments.vat')} value={formatTzs(detail.vatTzs)} />
                 <Row label={t('payments.doctorAmount')} value={formatTzs(detail.doctorAmountTzs)} />
+                {detail.commissionBps !== null && (
+                  <Row
+                    label={t('payments.rates')}
+                    value={`${detail.commissionBps / 100}% · VAT ${(detail.vatBps ?? 0) / 100}% ${
+                      detail.vatMode === 'INCLUDED_IN_COMMISSION' ? '(incl.)' : '(+)'
+                    }`}
+                  />
+                )}
+                {detail.providerFeeTzs !== null && (
+                  <Row label={t('payments.providerFee')} value={formatTzs(detail.providerFeeTzs)} />
+                )}
                 <Row label={t('payments.status')} value={detail.status} />
                 <Row label={t('payments.method')} value={detail.method} />
                 <Row label="Attempt" value={String(detail.attempt)} />

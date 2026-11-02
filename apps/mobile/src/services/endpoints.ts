@@ -132,6 +132,10 @@ export interface PaymentItem {
   refundPending: boolean;
   paidAt: string | null;
   refundedAt: string | null;
+  /** Receipt breakdown (frozen at booking): platformFeeTzs + vatTzs + doctorAmountTzs === amountTzs. */
+  platformFeeTzs: number;
+  vatTzs: number;
+  doctorAmountTzs: number;
 }
 
 export const paymentApi = {

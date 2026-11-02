@@ -178,6 +178,11 @@ enum RefundState {
   FAILED // provider refused / unsupported → admin retries or completes manually
 }
 
+enum VatMode {
+  ON_TOP_OF_COMMISSION // VAT added on top of the commission, also deducted from the doctor's share
+  INCLUDED_IN_COMMISSION // the commission already contains the VAT
+}
+
 enum DoctorPaymentStatus {
   PENDING
   PROCESSING
@@ -355,6 +360,9 @@ model Doctor {
   subSpecialty          String?
   yearsOfExperience     Int
   consultationFeeTzs    Int
+  // Admin-set commission override in basis points (2000 = 20%); null ⇒ the
+  // platform FeeSettings rate. Changes are audited (FEE_OVERRIDE_CHANGED).
+  commissionOverrideBps Int?
   bio                   String?
   languages             String[]                 @default(["sw"])
   verificationStatus    DoctorVerificationStatus @default(PENDING)
@@ -758,8 +766,19 @@ model Payment {
   deliveryId              String?           @unique
   delivery                MedicineDelivery? @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
   amountTzs               Int // whole TZS — see CLAUDE.md money rules
-  platformFeeTzs          Int               @default(0) // splitFee: platform keeps the rounding remainder
+  // calculateFees snapshot, frozen at creation so later rate changes never
+  // alter history. Invariant: platformFeeTzs + vatTzs + doctorAmountTzs = amountTzs.
+  platformFeeTzs          Int               @default(0) // platform commission EXCLUDING VAT
+  vatTzs                  Int               @default(0) // VAT on the commission (never on the medical fee)
   doctorAmountTzs         Int               @default(0)
+  commissionBps           Int? // rates used (null on pre-13a rows: legacy 10% split, no VAT)
+  vatBps                  Int? // 0 when VAT was disabled
+  vatMode                 VatMode?
+  feeSettingsId           String?
+  feeSettings             FeeSettings?      @relation(fields: [feeSettingsId], references: [id], onDelete: Restrict)
+  // AzamPay's own charge on this collection, when known; absorbed by the platform.
+  providerFeeTzs          Int?
+  providerFeeSource       String? // 'PROVIDER' (API) | 'STATEMENT' (reconciliation import)
   method                  PaymentMethod
   status                  PaymentStatus     @default(PENDING)
   idempotencyKey          String            @unique // `${appointmentId}:${attempt}`
@@ -787,6 +806,7 @@ model Payment {
   // keep checking the provider until final, then late success ⇒ refund.
   abandonedAt             DateTime?
   lastStatusCheckAt       DateTime?
+  doctorPayments          DoctorPayment[]
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
 
@@ -802,6 +822,9 @@ model DoctorPayment {
   doctorId    String
   doctor      Doctor              @relation(fields: [doctorId], references: [id], onDelete: Restrict)
   amountTzs   Int
+  // The patient payment this earning came from (fee / commission / VAT breakdown).
+  paymentId   String?
+  payment     Payment?            @relation(fields: [paymentId], references: [id], onDelete: Restrict)
   periodStart DateTime
   periodEnd   DateTime
   status      DoctorPaymentStatus @default(PENDING)
@@ -811,6 +834,27 @@ model DoctorPayment {
   updatedAt   DateTime            @updatedAt
 
   @@index([doctorId, periodStart])
+  @@index([doctorId, status])
+}
+
+// Platform fee settings, EFFECTIVE-DATED and insert-only: the row in force at
+// time T is the latest with effectiveFrom <= T. Changing a rate adds a row
+// (audited FEE_SETTINGS_CHANGED); history is never edited, and every Payment
+// snapshots the rates it used.
+model FeeSettings {
+  id              String    @id @default(cuid())
+  commissionBps   Int // 2000 = 20%
+  vatEnabled      Boolean
+  vatBps          Int // 1800 = 18%
+  vatMode         VatMode
+  minPayoutTzs    Int // doctor payouts below this carry forward
+  effectiveFrom   DateTime
+  createdByUserId String?
+  note            String?
+  createdAt       DateTime  @default(now())
+  payments        Payment[]
+
+  @@index([effectiveFrom])
 }
 
 // ─── Notifications & audit ───────────────────────────────────────────────────

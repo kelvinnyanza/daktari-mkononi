@@ -330,6 +330,9 @@ export class DoctorService {
       verificationStatus: string;
       averageRating: number;
       totalConsultations: number;
+      consultationFeeTzs: number;
+      /** null ⇒ platform rate applies. */
+      commissionOverridePercent: number | null;
     }>;
     page: number;
     pageSize: number;
@@ -350,6 +353,9 @@ export class DoctorService {
         verificationStatus: doctor.verificationStatus,
         averageRating: doctor.averageRating,
         totalConsultations: doctor.totalConsultations,
+        consultationFeeTzs: doctor.consultationFeeTzs,
+        commissionOverridePercent:
+          doctor.commissionOverrideBps === null ? null : doctor.commissionOverrideBps / 100,
       })),
       page: query.page,
       pageSize: query.pageSize,

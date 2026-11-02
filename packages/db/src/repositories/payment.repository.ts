@@ -1,12 +1,25 @@
-import type { Payment, PaymentMethod, PaymentStatus, Prisma, RefundState } from '@prisma/client';
+import type {
+  Payment,
+  PaymentMethod,
+  PaymentStatus,
+  Prisma,
+  RefundState,
+  VatMode,
+} from '@prisma/client';
 import { prisma } from '../client.js';
 
 export interface CreatePaymentInput {
   patientId: string;
   appointmentId: string;
   amountTzs: number;
+  /** Commission EXCLUDING VAT. Invariant: platformFeeTzs + vatTzs + doctorAmountTzs = amountTzs. */
   platformFeeTzs: number;
+  vatTzs: number;
   doctorAmountTzs: number;
+  commissionBps: number;
+  vatBps: number;
+  vatMode: VatMode;
+  feeSettingsId: string | null;
   method: PaymentMethod;
   idempotencyKey: string;
   payerPhone: string | null;

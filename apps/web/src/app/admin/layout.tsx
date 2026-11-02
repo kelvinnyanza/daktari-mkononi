@@ -7,6 +7,7 @@ import { PortalShell, type NavItem } from '@/components/portal-shell';
 const NAV: NavItem[] = [
   { href: '/admin/verification', labelKey: 'admin.nav.verification' },
   { href: '/admin/payments', labelKey: 'admin.nav.payments' },
+  { href: '/admin/fees', labelKey: 'admin.nav.fees' },
   { href: '/admin/ai-usage', labelKey: 'admin.nav.aiUsage' },
   { href: '/admin/doctors', labelKey: 'admin.nav.doctors' },
   { href: '/admin/patients', labelKey: 'admin.nav.patients' },

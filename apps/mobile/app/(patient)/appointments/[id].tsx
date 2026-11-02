@@ -251,6 +251,24 @@ function PaymentStatusLines({
       </Body>
       {cancelled && payment.status === 'REFUNDED' ? <Body>{t('payment.refund.done')}</Body> : null}
       {cancelled && payment.refundPending ? <Body>{t('payment.refund.pending')}</Body> : null}
+      {payment.status === 'COMPLETED' || payment.status === 'REFUNDED' ? (
+        <View style={styles.statusLines}>
+          <Body>{t('payment.receipt.title')}</Body>
+          <Body muted>
+            {t('payment.receipt.fee')}: {formatTzs(payment.amountTzs)}
+          </Body>
+          <Body muted>
+            {t('payment.receipt.commission')}: {formatTzs(payment.platformFeeTzs)}
+          </Body>
+          <Body muted>
+            {t('payment.receipt.vat')}: {formatTzs(payment.vatTzs)}
+          </Body>
+          <Body muted>
+            {t('payment.receipt.doctor')}: {formatTzs(payment.doctorAmountTzs)}
+          </Body>
+          <Body muted>{t('payment.receipt.vatNote')}</Body>
+        </View>
+      ) : null}
     </View>
   );
 }

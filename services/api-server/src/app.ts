@@ -36,6 +36,7 @@ import { buildScreeningRoutes } from './modules/ai/screening.routes.js';
 import { ScreeningService } from './modules/ai/screening.service.js';
 import { buildAdminRoutes } from './modules/admin/admin.routes.js';
 import { PaymentService } from './modules/payments/payment.service.js';
+import { FeeSettingsService } from './modules/payments/fee-settings.service.js';
 import { buildPaymentRoutes } from './modules/payments/payment.routes.js';
 import { buildAzamPayWebhookRoutes } from './modules/payments/webhook.routes.js';
 import { buildDevRoutes } from './modules/dev/dev.routes.js';
@@ -63,6 +64,7 @@ export interface BuiltApp {
     ratings: RatingService;
     screenings: ScreeningService;
     payments: PaymentService;
+    fees: FeeSettingsService;
   };
   wsTickets: WsTicketStore;
 }
@@ -157,6 +159,14 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
     },
     now,
   );
+  const feeSettingsService = new FeeSettingsService(
+    {
+      feeSettings: options.deps.feeSettings,
+      doctors: options.deps.doctors,
+      auditLogs: options.deps.auditLogs,
+    },
+    now,
+  );
   const paymentService = new PaymentService(
     {
       payments: options.deps.paymentsRepo,
@@ -167,6 +177,7 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
       mobileMoney: options.deps.mobileMoney,
       sms: options.deps.sms,
       auditLogs: options.deps.auditLogs,
+      fees: feeSettingsService,
     },
     now,
   );
@@ -264,7 +275,7 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
   await app.register(buildAdminRoutes(screeningService, options.deps.sessions, now), {
     prefix: '/api/v1/admin',
   });
-  await app.register(buildPaymentRoutes(paymentService, options.deps.sessions, now), {
+  await app.register(buildPaymentRoutes(paymentService, feeSettingsService, options.deps.sessions, now), {
     prefix: '/api/v1',
   });
   await app.register(buildAzamPayWebhookRoutes(paymentService, options.deps.auditLogs), {
@@ -296,6 +307,7 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
       ratings: ratingService,
       screenings: screeningService,
       payments: paymentService,
+      fees: feeSettingsService,
     },
     wsTickets,
   };

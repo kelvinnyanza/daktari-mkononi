@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 import type { Appointment, Payment, PaymentMethod } from '@daktari/db';
 import {
   MobileMoneyError,
+  calculateFees,
   deriveMno,
-  splitFee,
   type MobileMoneyPort,
 } from '@daktari/payments';
 import type { AdminPaymentsQuery, Pagination } from '@daktari/schemas';
@@ -19,6 +19,7 @@ import type {
   PaymentRepoPort,
 } from '../../lib/ports.js';
 import { findAppointmentTransition } from '../appointments/appointment.machine.js';
+import type { FeeSettingsService } from './fee-settings.service.js';
 
 const PAYMENT_NOT_FOUND = (): ApiError =>
   new ApiError(404, 'PAYMENT_NOT_FOUND', msg('Malipo hayajapatikana', 'Payment not found'));
@@ -27,8 +28,14 @@ export interface PaymentView {
   id: string;
   appointmentId: string | null;
   amountTzs: number;
+  /** Commission EXCLUDING VAT. platformFeeTzs + vatTzs + doctorAmountTzs === amountTzs. */
   platformFeeTzs: number;
+  vatTzs: number;
   doctorAmountTzs: number;
+  commissionBps: number | null;
+  vatBps: number | null;
+  vatMode: Payment['vatMode'];
+  providerFeeTzs: number | null;
   method: Payment['method'];
   status: Payment['status'];
   attempt: number;
@@ -75,6 +82,8 @@ export interface PaymentServiceDeps {
   mobileMoney: MobileMoneyPort;
   sms: SmsPort;
   auditLogs: AuditLogPort;
+  /** Effective commission / VAT rates for a doctor (FeeSettingsService). */
+  fees: Pick<FeeSettingsService, 'ratesFor'>;
 }
 
 const METHOD_BY_NETWORK: Record<string, PaymentMethod> = {
@@ -111,15 +120,12 @@ export class PaymentService implements PaymentPort {
   }): Promise<{ reference: string }> {
     let payment = await this.deps.payments.findByAppointmentId(input.appointmentId);
     if (!payment) {
-      const split = splitFee(input.amountTzs);
-      payment = await this.deps.payments.create({
-        patientId: input.patientId,
+      const appointment = await this.deps.appointments.findById(input.appointmentId);
+      payment = await this.createPaymentRow({
         appointmentId: input.appointmentId,
+        patientId: input.patientId,
+        doctorId: appointment?.doctorId ?? null,
         amountTzs: input.amountTzs,
-        platformFeeTzs: split.platformFeeTzs,
-        doctorAmountTzs: split.doctorAmountTzs,
-        method: METHOD_BY_NETWORK[deriveMno(input.payerPhone)?.network ?? ''] ?? 'MPESA',
-        idempotencyKey: `${input.appointmentId}:1`,
         payerPhone: input.payerPhone,
       });
     }
@@ -172,16 +178,11 @@ export class PaymentService implements PaymentPort {
     const payerPhone = user?.user.phone ?? '';
     if (!payment) {
       const doctor = await this.deps.doctors.findById(appointment.doctorId);
-      const amountTzs = doctor?.consultationFeeTzs ?? 0;
-      const split = splitFee(amountTzs);
-      payment = await this.deps.payments.create({
-        patientId: patient.id,
+      payment = await this.createPaymentRow({
         appointmentId,
-        amountTzs,
-        platformFeeTzs: split.platformFeeTzs,
-        doctorAmountTzs: split.doctorAmountTzs,
-        method: METHOD_BY_NETWORK[deriveMno(payerPhone)?.network ?? ''] ?? 'MPESA',
-        idempotencyKey: `${appointmentId}:1`,
+        patientId: patient.id,
+        doctorId: appointment.doctorId,
+        amountTzs: doctor?.consultationFeeTzs ?? 0,
         payerPhone,
       });
     } else if (payment.status === 'FAILED') {
@@ -213,6 +214,38 @@ export class PaymentService implements PaymentPort {
       throw error;
     }
     return this.toView(payment);
+  }
+
+  /**
+   * The one place a Payment row is born. The commission / VAT split is
+   * computed from the rates in force NOW (platform settings + the doctor's
+   * override) and frozen on the row with the rates themselves, so a later
+   * rate change never alters this payment, its receipt or the earning.
+   */
+  private async createPaymentRow(input: {
+    appointmentId: string;
+    patientId: string;
+    doctorId: string | null;
+    amountTzs: number;
+    payerPhone: string;
+  }): Promise<Payment> {
+    const { rates, feeSettingsId } = await this.deps.fees.ratesFor(input.doctorId);
+    const split = calculateFees(input.amountTzs, rates);
+    return this.deps.payments.create({
+      patientId: input.patientId,
+      appointmentId: input.appointmentId,
+      amountTzs: input.amountTzs,
+      platformFeeTzs: split.platformCommissionTzs,
+      vatTzs: split.vatTzs,
+      doctorAmountTzs: split.doctorAmountTzs,
+      commissionBps: rates.commissionBps,
+      vatBps: rates.vatEnabled ? rates.vatBps : 0,
+      vatMode: rates.vatMode,
+      feeSettingsId,
+      method: METHOD_BY_NETWORK[deriveMno(input.payerPhone)?.network ?? ''] ?? 'MPESA',
+      idempotencyKey: `${input.appointmentId}:1`,
+      payerPhone: input.payerPhone,
+    });
   }
 
   /**
@@ -643,6 +676,7 @@ export class PaymentService implements PaymentPort {
       doctorId: input.doctorId,
       amountTzs: payment.doctorAmountTzs,
       reference: `consultation:${input.consultationId}`,
+      paymentId: payment.id,
       periodStart: this.now(),
       periodEnd: this.now(),
     });
@@ -674,7 +708,23 @@ export class PaymentService implements PaymentPort {
   }
 
   async doctorEarnings(userId: string, query: Pagination): Promise<{
-    items: Array<{ id: string; amountTzs: number; status: string; reference: string | null; createdAt: Date }>;
+    items: Array<{
+      id: string;
+      amountTzs: number;
+      status: string;
+      reference: string | null;
+      createdAt: Date;
+      /** Frozen split of the patient payment this earning came from (null on adjustments). */
+      breakdown: {
+        feeTzs: number;
+        platformCommissionTzs: number;
+        vatTzs: number;
+        doctorAmountTzs: number;
+        commissionBps: number | null;
+        vatBps: number | null;
+        vatMode: string | null;
+      } | null;
+    }>;
     totalAmountTzs: number;
     page: number;
     pageSize: number;
@@ -695,6 +745,18 @@ export class PaymentService implements PaymentPort {
         status: row.status,
         reference: row.reference,
         createdAt: row.createdAt,
+        breakdown:
+          row.payment === null
+            ? null
+            : {
+                feeTzs: row.payment.amountTzs,
+                platformCommissionTzs: row.payment.platformFeeTzs,
+                vatTzs: row.payment.vatTzs,
+                doctorAmountTzs: row.payment.doctorAmountTzs,
+                commissionBps: row.payment.commissionBps,
+                vatBps: row.payment.vatBps,
+                vatMode: row.payment.vatMode,
+              },
       })),
       totalAmountTzs,
       page: query.page,
@@ -785,7 +847,12 @@ export class PaymentService implements PaymentPort {
       appointmentId: payment.appointmentId,
       amountTzs: payment.amountTzs,
       platformFeeTzs: payment.platformFeeTzs,
+      vatTzs: payment.vatTzs,
       doctorAmountTzs: payment.doctorAmountTzs,
+      commissionBps: payment.commissionBps,
+      vatBps: payment.vatBps,
+      vatMode: payment.vatMode,
+      providerFeeTzs: payment.providerFeeTzs,
       method: payment.method,
       status: payment.status,
       attempt: payment.attempt,

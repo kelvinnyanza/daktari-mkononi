@@ -17,6 +17,13 @@ interface EarningRow {
   status: string;
   reference: string | null;
   createdAt: string;
+  /** Frozen split of the patient's payment (null on adjustments). */
+  breakdown: {
+    feeTzs: number;
+    platformCommissionTzs: number;
+    vatTzs: number;
+    doctorAmountTzs: number;
+  } | null;
 }
 
 interface EarningsResponse {
@@ -73,7 +80,7 @@ export default function DoctorEarningsPage() {
         </Card>
       </div>
 
-      <Card className="max-w-3xl">
+      <Card className="max-w-5xl">
         {data.items.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">{t('earnings.empty')}</p>
         ) : (
@@ -81,7 +88,10 @@ export default function DoctorEarningsPage() {
             <THead>
               <TR>
                 <TH>{t('earnings.date')}</TH>
-                <TH>{t('earnings.amount')}</TH>
+                <TH>{t('earnings.fee')}</TH>
+                <TH>{t('earnings.commission')}</TH>
+                <TH>{t('earnings.vat')}</TH>
+                <TH>{t('earnings.youReceive')}</TH>
                 <TH>{t('earnings.status')}</TH>
                 <TH>{t('payments.reference')}</TH>
               </TR>
@@ -90,6 +100,15 @@ export default function DoctorEarningsPage() {
               {data.items.map((row) => (
                 <TR key={row.id}>
                   <TD className="text-muted-foreground">{eatDateTimeLabel(row.createdAt)}</TD>
+                  <TD className="tabular-nums">
+                    {row.breakdown !== null ? formatTzs(row.breakdown.feeTzs) : '—'}
+                  </TD>
+                  <TD className="tabular-nums text-muted-foreground">
+                    {row.breakdown !== null ? `−${formatTzs(row.breakdown.platformCommissionTzs)}` : '—'}
+                  </TD>
+                  <TD className="tabular-nums text-muted-foreground">
+                    {row.breakdown !== null ? `−${formatTzs(row.breakdown.vatTzs)}` : '—'}
+                  </TD>
                   <TD className="font-medium tabular-nums">{formatTzs(row.amountTzs)}</TD>
                   <TD>
                     <Badge tone={row.status === 'COMPLETED' ? 'success' : 'neutral'}>
