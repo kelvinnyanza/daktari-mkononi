@@ -5,6 +5,7 @@ import {
   idSchema,
   markRefundChasedSchema,
   paginationSchema,
+  resolvePaymentReviewSchema,
 } from '@daktari/schemas';
 import type { SessionRepoPort } from '../../lib/ports.js';
 import { authorize, makeAuthenticate } from '../../middleware/authenticate.js';
@@ -67,6 +68,24 @@ export function buildPaymentRoutes(
       '/admin/refunds/pending',
       { preHandler: [authenticate, authorize('admin:dashboard')] },
       async () => service.refundsPending(),
+    );
+
+    // Admin alert queue: late successes (auto-refunded), amount mismatches,
+    // payments stuck after abandonment, stray attempts.
+    app.get(
+      '/admin/payments/review',
+      { preHandler: [authenticate, authorize('admin:dashboard')] },
+      async () => service.reviewQueue(),
+    );
+
+    app.post(
+      '/admin/payments/:id/review/resolve',
+      { preHandler: [authenticate, authorize('admin:dashboard')] },
+      async (request) => {
+        const { id } = paramsSchema.parse(request.params);
+        const input = resolvePaymentReviewSchema.parse(request.body);
+        return service.resolveReview(request.auth!.userId, id, input.note);
+      },
     );
 
     // Record a manual chase note against a stuck refund (audit-logged).

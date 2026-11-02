@@ -1,4 +1,4 @@
-import type { Payment, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
+import type { Payment, PaymentMethod, PaymentStatus, Prisma, RefundState } from '@prisma/client';
 import { prisma } from '../client.js';
 
 export interface CreatePaymentInput {
@@ -67,11 +67,66 @@ export const paymentRepository = {
     return prisma.payment.findUnique({ where: { id } });
   },
 
-  /** PROCESSING payments stuck longer than the cutoff — reconciliation input. */
+  /**
+   * Any payment created for an attempt key family `<appointmentId>:` — used to
+   * recognise a superseded attempt's late callback (the key changes per retry).
+   */
+  findByIdempotencyKeyPrefix(prefix: string): Promise<Payment | null> {
+    return prisma.payment.findFirst({ where: { idempotencyKey: { startsWith: prefix } } });
+  },
+
+  /**
+   * Guarded refund claim/transition: applies only while the payment is
+   * COMPLETED and its refundState is one of `from` (null = never refunded).
+   * Two concurrent refund triggers cannot both claim the same payment.
+   */
+  async transitionRefundState(
+    id: string,
+    from: Array<RefundState | null>,
+    data: Prisma.PaymentUpdateManyMutationInput,
+  ): Promise<Payment | null> {
+    const states = from.filter((state): state is RefundState => state !== null);
+    const { count } = await prisma.payment.updateMany({
+      where: {
+        id,
+        status: 'COMPLETED',
+        OR: [
+          ...(states.length > 0 ? [{ refundState: { in: states } }] : []),
+          ...(from.includes(null) ? [{ refundState: null }] : []),
+        ],
+      },
+      data,
+    });
+    if (count === 0) return null;
+    return prisma.payment.findUnique({ where: { id } });
+  },
+
+  /**
+   * PROCESSING payments untouched since the cutoff — reconciliation input.
+   * Least-recently-checked first, so a few rows the provider keeps answering
+   * "pending" for can never starve the rest of the queue.
+   */
   listProcessingOlderThan(cutoff: Date, limit = 50): Promise<Payment[]> {
     return prisma.payment.findMany({
       where: { status: 'PROCESSING', updatedAt: { lt: cutoff } },
+      orderBy: [{ lastStatusCheckAt: { sort: 'asc', nulls: 'first' } }, { updatedAt: 'asc' }],
       take: limit,
+    });
+  },
+
+  /** Abandoned payments still PROCESSING since before the cutoff and not yet flagged. */
+  listAbandonedUnresolved(cutoff: Date, limit = 50): Promise<Payment[]> {
+    return prisma.payment.findMany({
+      where: { status: 'PROCESSING', abandonedAt: { lt: cutoff }, reviewReason: null },
+      take: limit,
+    });
+  },
+
+  /** Open admin review items (late success, amount mismatch, stuck, stray), oldest first. */
+  listReviewQueue(): Promise<Payment[]> {
+    return prisma.payment.findMany({
+      where: { reviewReason: { not: null }, reviewResolvedAt: null },
+      orderBy: { reviewFlaggedAt: 'asc' },
     });
   },
 

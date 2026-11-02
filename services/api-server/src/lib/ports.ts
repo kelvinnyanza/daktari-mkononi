@@ -44,6 +44,7 @@ import type {
   PatientInsurance,
   PatientWithUser,
   Prisma,
+  RefundState,
   ScheduleSlotInput,
   ScreeningSessionStatus,
   ScreeningUsageSummary,
@@ -252,6 +253,13 @@ export interface PaymentPort {
   }): Promise<{ reference: string }>;
   /** Full automatic refund when a PAID appointment is cancelled; no-op otherwise. */
   refundIfPaid(appointmentId: string, reason: string): Promise<void>;
+  /**
+   * The appointment stopped being payable (expired / cancelled unpaid). An
+   * in-flight payment is NOT closed — the money may still move — it is marked
+   * abandoned so reconciliation keeps checking it until final, and a late
+   * success is refunded instead of confirming anything.
+   */
+  abandonIfUnpaid(appointmentId: string, reason: string): Promise<void>;
 }
 
 export interface PaymentRepoPort {
@@ -266,7 +274,16 @@ export interface PaymentRepoPort {
     from: PaymentStatus[],
     data: Prisma.PaymentUpdateManyMutationInput & { status: PaymentStatus },
   ): Promise<Payment | null>;
+  findByIdempotencyKeyPrefix(prefix: string): Promise<Payment | null>;
+  /** Guarded refund claim: applies only while status=COMPLETED and refundState ∈ from. */
+  transitionRefundState(
+    id: string,
+    from: Array<RefundState | null>,
+    data: Prisma.PaymentUpdateManyMutationInput,
+  ): Promise<Payment | null>;
   listProcessingOlderThan(cutoff: Date, limit?: number): Promise<Payment[]>;
+  listAbandonedUnresolved(cutoff: Date, limit?: number): Promise<Payment[]>;
+  listReviewQueue(): Promise<Payment[]>;
   listForPatient(
     patientId: string,
     query: { page: number; pageSize: number },

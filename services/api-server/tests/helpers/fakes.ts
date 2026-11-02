@@ -1009,6 +1009,15 @@ export function makeFakeDeps(): FakeDeps {
           refundReason: null,
           refundPending: false,
           refundedAt: null,
+          refundState: null,
+          receivedAmountTzs: null,
+          reviewReason: null,
+          reviewNote: null,
+          reviewFlaggedAt: null,
+          reviewResolvedAt: null,
+          reviewResolvedByUserId: null,
+          abandonedAt: null,
+          lastStatusCheckAt: null,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -1028,10 +1037,41 @@ export function makeFakeDeps(): FakeDeps {
         paymentRows.set(id, next);
         return Promise.resolve(next);
       },
+      findByIdempotencyKeyPrefix: (prefix) =>
+        Promise.resolve(
+          [...paymentRows.values()].find((row) => row.idempotencyKey.startsWith(prefix)) ?? null,
+        ),
+      transitionRefundState: (id, from, data) => {
+        const payment = paymentRows.get(id);
+        if (!payment || payment.status !== 'COMPLETED' || !from.includes(payment.refundState)) {
+          return Promise.resolve(null);
+        }
+        const next = { ...payment, ...(data as Partial<Payment>), updatedAt: new Date() };
+        paymentRows.set(id, next);
+        return Promise.resolve(next);
+      },
       listProcessingOlderThan: (cutoff) =>
         Promise.resolve(
+          [...paymentRows.values()]
+            .filter((row) => row.status === 'PROCESSING' && row.updatedAt < cutoff)
+            .sort(
+              (a, b) => (a.lastStatusCheckAt?.getTime() ?? 0) - (b.lastStatusCheckAt?.getTime() ?? 0),
+            ),
+        ),
+      listAbandonedUnresolved: (cutoff) =>
+        Promise.resolve(
           [...paymentRows.values()].filter(
-            (row) => row.status === 'PROCESSING' && row.updatedAt < cutoff,
+            (row) =>
+              row.status === 'PROCESSING' &&
+              row.abandonedAt !== null &&
+              row.abandonedAt < cutoff &&
+              row.reviewReason === null,
+          ),
+        ),
+      listReviewQueue: () =>
+        Promise.resolve(
+          [...paymentRows.values()].filter(
+            (row) => row.reviewReason !== null && row.reviewResolvedAt === null,
           ),
         ),
       listForPatient: (patientId, query) => {

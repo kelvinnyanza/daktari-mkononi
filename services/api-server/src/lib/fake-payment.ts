@@ -16,6 +16,7 @@ export class FakePaymentPort implements PaymentPort {
     payerPhone: string;
   }> = [];
   readonly refunds: Array<{ appointmentId: string; reason: string }> = [];
+  readonly abandoned: Array<{ appointmentId: string; reason: string }> = [];
   readonly accruals: Array<{ appointmentId: string; doctorId: string; consultationId: string }> = [];
 
   initiateMobileMoney(input: {
@@ -31,6 +32,11 @@ export class FakePaymentPort implements PaymentPort {
 
   refundIfPaid(appointmentId: string, reason: string): Promise<void> {
     this.refunds.push({ appointmentId, reason });
+    return Promise.resolve();
+  }
+
+  abandonIfUnpaid(appointmentId: string, reason: string): Promise<void> {
+    this.abandoned.push({ appointmentId, reason });
     return Promise.resolve();
   }
 

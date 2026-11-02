@@ -16,6 +16,12 @@ export const markRefundChasedSchema = z.object({
 });
 export type MarkRefundChasedInput = z.infer<typeof markRefundChasedSchema>;
 
+/** POST /api/v1/admin/payments/:id/review/resolve — what the admin did (audit-logged). */
+export const resolvePaymentReviewSchema = z.object({
+  note: z.string().trim().min(3).max(1000),
+});
+export type ResolvePaymentReviewInput = z.infer<typeof resolvePaymentReviewSchema>;
+
 /** GET /api/v1/admin/payments */
 export const adminPaymentsQuerySchema = paginationSchema.extend({
   status: paymentStatusSchema.optional(),

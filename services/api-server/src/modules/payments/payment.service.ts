@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { Payment, PaymentMethod } from '@daktari/db';
+import type { Appointment, Payment, PaymentMethod } from '@daktari/db';
 import {
   MobileMoneyError,
   deriveMno,
@@ -34,6 +34,14 @@ export interface PaymentView {
   attempt: number;
   failureReason: string | null;
   refundPending: boolean;
+  refundState: Payment['refundState'];
+  refundAmountTzs: number | null;
+  receivedAmountTzs: number | null;
+  reviewReason: Payment['reviewReason'];
+  reviewNote: string | null;
+  reviewFlaggedAt: Date | null;
+  reviewResolvedAt: Date | null;
+  abandonedAt: Date | null;
   paidAt: Date | null;
   refundedAt: Date | null;
   createdAt: Date;
@@ -43,7 +51,20 @@ export interface PaymentResultInput {
   status: 'COMPLETED' | 'FAILED';
   providerReference: string;
   failureReason?: string;
+  /** Whole TZS the provider says it collected, when it says. */
+  amountTzs?: number;
 }
+
+/** Appointment states that mean "this payment already bought something". */
+const SETTLED_APPOINTMENT_STATUSES: ReadonlySet<string> = new Set([
+  'CONFIRMED',
+  'CHECKED_IN',
+  'IN_PROGRESS',
+  'COMPLETED',
+]);
+
+/** Abandoned payments still not final after this long go to the admin review queue. */
+const ABANDONED_ALERT_AFTER_MS = 24 * 60 * 60_000;
 
 export interface PaymentServiceDeps {
   payments: PaymentRepoPort;
@@ -225,6 +246,11 @@ export class PaymentService implements PaymentPort {
    * Apply a terminal provider answer. SHARED by the webhook and the
    * reconciliation job so the two paths cannot diverge. Idempotent: replays
    * of a terminal event find the guard already consumed and no-op.
+   *
+   * A success is recorded as COMPLETED whatever happens next — the money DID
+   * move — but it only confirms the appointment while that appointment is
+   * still payable. Otherwise (expired, cancelled, gone) it is a LATE SUCCESS:
+   * flagged for admins, the patient is told, and a full refund starts.
    */
   async applyPaymentResult(
     payment: Payment,
@@ -239,15 +265,13 @@ export class PaymentService implements PaymentPort {
           status: 'COMPLETED',
           paidAt: this.now(),
           externalReference: result.providerReference,
+          receivedAmountTzs: result.amountTzs ?? payment.amountTzs,
         },
       );
       if (!applied) return { applied: false }; // replay / race → no-op
 
       await this.audit(null, 'PAYMENT_COMPLETED', payment.id, { source });
-      // Drive the Phase 4 appointment transition (guarded there too).
-      if (payment.appointmentId !== null) {
-        await this.confirmAppointment(payment.appointmentId);
-      }
+      await this.settle(applied);
       return { applied: true };
     }
 
@@ -264,11 +288,68 @@ export class PaymentService implements PaymentPort {
     return { applied: true };
   }
 
-  private async confirmAppointment(appointmentId: string): Promise<void> {
-    const appointment = await this.deps.appointments.findById(appointmentId);
-    if (!appointment) return;
+  /** Decide what a freshly COMPLETED payment buys: a confirmation, or a refund. */
+  private async settle(payment: Payment): Promise<void> {
+    if (payment.appointmentId === null) return;
+    const appointment = await this.deps.appointments.findById(payment.appointmentId);
+    if (appointment && SETTLED_APPOINTMENT_STATUSES.has(appointment.status)) return;
+
+    const payable =
+      appointment !== null &&
+      appointment.status === 'PENDING_PAYMENT' &&
+      appointment.paymentIntent === 'MOBILE_MONEY' &&
+      (appointment.expiresAt === null || appointment.expiresAt.getTime() > this.now().getTime());
+    if (payable && (await this.confirmAppointment(appointment))) return;
+
+    // Lost a race with the expiry sweep / a cancel, or never payable at all.
+    const current = payable ? await this.deps.appointments.findById(appointment.id) : appointment;
+    if (current && SETTLED_APPOINTMENT_STATUSES.has(current.status)) return;
+    await this.handleLateSuccess(payment, current);
+  }
+
+  private async handleLateSuccess(payment: Payment, appointment: Appointment | null): Promise<void> {
+    const why =
+      appointment === null
+        ? 'APPOINTMENT_MISSING'
+        : appointment.status === 'PENDING_PAYMENT'
+          ? 'APPOINTMENT_EXPIRED'
+          : `APPOINTMENT_${appointment.status}`;
+    const flagged = await this.flagForReview(payment, 'LATE_SUCCESS', why);
+    await this.notifyLateSuccess(flagged);
+    await this.refundPayment(flagged, `late-success: ${why}`, null);
+  }
+
+  /**
+   * Admin alert: the payment enters the review queue (GET
+   * /admin/payments/review) and the audit log records why. Re-flagging an
+   * already-open item keeps the first reason.
+   */
+  private async flagForReview(
+    payment: Payment,
+    reason: NonNullable<Payment['reviewReason']>,
+    note: string,
+  ): Promise<Payment> {
+    if (payment.reviewReason !== null && payment.reviewResolvedAt === null) return payment;
+    const flagged = await this.deps.payments.update(payment.id, {
+      reviewReason: reason,
+      reviewNote: note,
+      reviewFlaggedAt: this.now(),
+      reviewResolvedAt: null,
+      reviewResolvedByUserId: null,
+    });
+    await this.audit(null, 'PAYMENT_REVIEW_FLAGGED', payment.id, {
+      reason,
+      note,
+      amountTzs: payment.amountTzs,
+      receivedAmountTzs: flagged.receivedAmountTzs,
+    });
+    return flagged;
+  }
+
+  /** Returns true when THIS call moved the appointment to CONFIRMED. */
+  private async confirmAppointment(appointment: Appointment): Promise<boolean> {
     const transition = findAppointmentTransition('PAYMENT_COMPLETED', appointment.status);
-    if (!transition) return; // already CONFIRMED (or beyond) — idempotent
+    if (!transition) return false;
     const applied = await this.deps.appointments.transition(appointment.id, transition.from, {
       status: transition.to,
       confirmedAt: this.now(),
@@ -278,21 +359,48 @@ export class PaymentService implements PaymentPort {
         ? { checkInToken: PaymentService.mintCheckInToken() }
         : {}),
     });
-    if (applied) {
-      await this.deps.auditLogs.append({
-        actorUserId: null,
-        action: 'APPOINTMENT_TRANSITION',
-        resourceType: 'Appointment',
-        resourceId: appointment.id,
-        ipAddress: null,
-        userAgent: null,
-        metadata: { event: 'PAYMENT_COMPLETED', from: transition.from, to: transition.to },
-      });
-    }
+    if (!applied) return false;
+    await this.deps.auditLogs.append({
+      actorUserId: null,
+      action: 'APPOINTMENT_TRANSITION',
+      resourceType: 'Appointment',
+      resourceId: appointment.id,
+      ipAddress: null,
+      userAgent: null,
+      metadata: { event: 'PAYMENT_COMPLETED', from: transition.from, to: transition.to },
+    });
+    return true;
   }
 
   private static mintCheckInToken(): string {
     return randomBytes(24).toString('base64url');
+  }
+
+  // ── Abandonment (appointment no longer payable) ────────────────────────────
+
+  /**
+   * Called when an unpaid booking expires or is cancelled. A PROCESSING
+   * payment may still succeed on the patient's phone, so it is never closed
+   * here: it is marked abandoned and reconciliation keeps querying it until
+   * the provider gives a final answer (late success ⇒ refund). A PENDING
+   * payment never reached the provider and can safely be failed.
+   */
+  async abandonIfUnpaid(appointmentId: string, reason: string): Promise<void> {
+    const payment = await this.deps.payments.findByAppointmentId(appointmentId);
+    if (!payment) return;
+    if (payment.status === 'PROCESSING' && payment.abandonedAt === null) {
+      await this.deps.payments.update(payment.id, { abandonedAt: this.now() });
+      await this.audit(null, 'PAYMENT_ABANDONED', payment.id, { reason });
+      return;
+    }
+    if (payment.status === 'PENDING') {
+      const failed = await this.deps.payments.transitionStatus(payment.id, ['PENDING'], {
+        status: 'FAILED',
+        failureReason: `abandoned before collection: ${reason}`,
+        abandonedAt: this.now(),
+      });
+      if (failed) await this.audit(null, 'PAYMENT_ABANDONED', payment.id, { reason, closed: true });
+    }
   }
 
   // ── Webhook ────────────────────────────────────────────────────────────────
@@ -333,16 +441,22 @@ export class PaymentService implements PaymentPort {
    * PROCESSING payments older than 90s get a status query; terminal answers
    * flow through applyPaymentResult — the exact same code path as the
    * webhook. Provider still pending → untouched. Provider errors → skipped.
+   * Abandoned payments stay in this loop until final; after 24h without a
+   * final answer they are flagged STUCK_PROCESSING for an admin.
    */
   async reconcilePendingPayments(): Promise<number> {
-    const cutoff = new Date(this.now().getTime() - 90_000);
+    const now = this.now();
+    const cutoff = new Date(now.getTime() - 90_000);
     const stuck = await this.deps.payments.listProcessingOlderThan(cutoff);
     let applied = 0;
     for (const payment of stuck) {
       if (payment.aggregatorTransactionId === null) continue;
       try {
         const status = await this.deps.mobileMoney.queryStatus(payment.aggregatorTransactionId);
-        if (status.status === 'PENDING') continue;
+        if (status.status === 'PENDING') {
+          await this.deps.payments.update(payment.id, { lastStatusCheckAt: now });
+          continue;
+        }
         const result = await this.applyPaymentResult(
           payment,
           {
@@ -354,8 +468,16 @@ export class PaymentService implements PaymentPort {
         );
         if (result.applied) applied += 1;
       } catch {
-        // Provider unreachable — leave for the next sweep.
+        // Provider unreachable — leave for the next sweep (least-recently-checked first).
+        await this.deps.payments.update(payment.id, { lastStatusCheckAt: now }).catch(() => null);
       }
+    }
+
+    const longAbandoned = await this.deps.payments.listAbandonedUnresolved(
+      new Date(now.getTime() - ABANDONED_ALERT_AFTER_MS),
+    );
+    for (const payment of longAbandoned) {
+      await this.flagForReview(payment, 'STUCK_PROCESSING', 'abandoned payment not final after 24h');
     }
     return applied;
   }
@@ -365,48 +487,109 @@ export class PaymentService implements PaymentPort {
   /**
    * Automatic full refund when a PAID appointment is cancelled. Failure never
    * blocks the cancellation: the payment stays COMPLETED with refundPending
-   * for the admin chase list.
+   * for the admin list.
    */
   async refundIfPaid(appointmentId: string, reason: string): Promise<void> {
     const payment = await this.deps.payments.findByAppointmentId(appointmentId);
     if (!payment || payment.status !== 'COMPLETED') return;
+    await this.refundPayment(payment, reason, null);
+  }
+
+  /**
+   * Full refund of what was actually received. The refund is CLAIMED with a
+   * guarded transition first (refundState null/FAILED → PROCESSING), so two
+   * triggers — a cancel racing a late success, an admin double-click — can
+   * never send the money back twice.
+   */
+  private async refundPayment(
+    payment: Payment,
+    reason: string,
+    actorUserId: string | null,
+  ): Promise<Payment> {
+    const amountTzs = payment.receivedAmountTzs ?? payment.amountTzs;
+    const claimed = await this.deps.payments.transitionRefundState(payment.id, [null, 'FAILED'], {
+      refundState: 'PROCESSING',
+      refundAmountTzs: amountTzs,
+      refundReason: reason,
+      refundPending: false,
+    });
+    if (!claimed) return payment; // already refunding / refunded / not COMPLETED
 
     try {
       const result = await this.deps.mobileMoney.refund({
         providerReference: payment.aggregatorTransactionId ?? payment.idempotencyKey,
-        amountTzs: payment.amountTzs,
+        amountTzs,
         reason,
       });
       if (result.status === 'FAILED') throw new MobileMoneyError('PROVIDER_UNAVAILABLE', 'refund rejected');
-      await this.deps.payments.transitionStatus(payment.id, ['COMPLETED'], {
-        status: 'REFUNDED',
-        refundAmountTzs: payment.amountTzs,
-        refundReference: result.refundReference,
-        refundReason: reason,
-        refundPending: false,
-        refundedAt: this.now(),
-      });
-      await this.audit(null, 'PAYMENT_REFUNDED', payment.id, { reason });
-      await this.notifyRefund(payment);
+      if (result.status === 'PENDING') {
+        const pending = await this.deps.payments.update(payment.id, {
+          refundReference: result.refundReference,
+        });
+        await this.audit(actorUserId, 'PAYMENT_REFUND_REQUESTED', payment.id, { reason, amountTzs });
+        return pending;
+      }
+      return (await this.completeRefund(claimed, result.refundReference, actorUserId, false)) ?? claimed;
     } catch (error) {
-      await this.deps.payments.update(payment.id, { refundPending: true, refundReason: reason });
-      await this.audit(null, 'PAYMENT_REFUND_FAILED', payment.id, {
+      const failed = await this.deps.payments.update(payment.id, {
+        refundPending: true,
+        refundState: 'FAILED',
+      });
+      await this.audit(actorUserId, 'PAYMENT_REFUND_FAILED', payment.id, {
         reason,
         code: error instanceof MobileMoneyError ? error.code : 'UNKNOWN',
       });
+      return failed;
     }
   }
 
+  /** COMPLETED → REFUNDED, once. Returns null when another path finished it first. */
+  private async completeRefund(
+    payment: Payment,
+    refundReference: string,
+    actorUserId: string | null,
+    manual: boolean,
+  ): Promise<Payment | null> {
+    const refunded = await this.deps.payments.transitionStatus(payment.id, ['COMPLETED'], {
+      status: 'REFUNDED',
+      refundState: 'COMPLETED',
+      refundReference,
+      refundPending: false,
+      refundedAt: this.now(),
+    });
+    if (!refunded) return null;
+    await this.audit(actorUserId, 'PAYMENT_REFUNDED', payment.id, {
+      reason: refunded.refundReason,
+      amountTzs: refunded.refundAmountTzs,
+      manual,
+    });
+    await this.notifyRefund(refunded);
+    return refunded;
+  }
+
   private async notifyRefund(payment: Payment): Promise<void> {
+    const amount = payment.refundAmountTzs ?? payment.amountTzs;
+    await this.smsPatient(
+      payment,
+      `Daktari Mkononi: malipo yako ya TZS ${amount} yamerudishwa kwenye mkoba wako wa simu.`,
+      `Daktari Mkononi: your payment of TZS ${amount} has been refunded to your mobile money wallet.`,
+    );
+  }
+
+  /** The patient approved the PIN after the booking was gone: say so before the refund lands. */
+  private async notifyLateSuccess(payment: Payment): Promise<void> {
+    const amount = payment.receivedAmountTzs ?? payment.amountTzs;
+    await this.smsPatient(
+      payment,
+      `Daktari Mkononi: malipo yako ya TZS ${amount} yamepokelewa baada ya miadi kuisha muda au kughairiwa. Miadi haikuthibitishwa; pesa yako inarudishwa kikamilifu. Tafadhali weka miadi mpya.`,
+      `Daktari Mkononi: your payment of TZS ${amount} arrived after the booking had expired or was cancelled. No appointment was confirmed; you are being refunded in full. Please book again.`,
+    );
+  }
+
+  private async smsPatient(payment: Payment, sw: string, en: string): Promise<void> {
     const patient = await this.deps.patients.findByIdWithUser(payment.patientId);
     if (!patient) return;
-    const english = patient.user.language === 'EN';
-    await this.deps.sms.sendSms(
-      patient.user.phone,
-      english
-        ? `Daktari Mkononi: your payment of TZS ${payment.amountTzs} has been refunded to your mobile money wallet.`
-        : `Daktari Mkononi: malipo yako ya TZS ${payment.amountTzs} yamerudishwa kwenye mkoba wako wa simu.`,
-    );
+    await this.deps.sms.sendSms(patient.user.phone, patient.user.language === 'EN' ? en : sw);
   }
 
   // ── Accrual (consultation COMPLETED) ───────────────────────────────────────
@@ -528,6 +711,35 @@ export class PaymentService implements PaymentPort {
     return { paymentId: payment.id, recorded: true };
   }
 
+  /** Admin review queue: late successes, amount mismatches, stuck and stray payments. */
+  async reviewQueue(): Promise<{ items: PaymentView[] }> {
+    const items = await this.deps.payments.listReviewQueue();
+    return { items: items.map((payment) => this.toView(payment)) };
+  }
+
+  /** An admin has dealt with a review item; the note lands on the row and in the audit log. */
+  async resolveReview(adminUserId: string, paymentId: string, note: string): Promise<PaymentView> {
+    const payment = await this.deps.payments.findById(paymentId);
+    if (!payment) throw PAYMENT_NOT_FOUND();
+    if (payment.reviewReason === null || payment.reviewResolvedAt !== null) {
+      throw new ApiError(
+        409,
+        'REVIEW_NOT_OPEN',
+        msg('Malipo haya hayasubiri ukaguzi', 'This payment has no open review'),
+      );
+    }
+    const resolved = await this.deps.payments.update(payment.id, {
+      reviewResolvedAt: this.now(),
+      reviewResolvedByUserId: adminUserId,
+      reviewNote: [payment.reviewNote, `[resolved] ${note}`].filter(Boolean).join('\n'),
+    });
+    await this.audit(adminUserId, 'PAYMENT_REVIEW_RESOLVED', payment.id, {
+      reason: payment.reviewReason,
+      note,
+    });
+    return this.toView(resolved);
+  }
+
   // ── Internals ──────────────────────────────────────────────────────────────
 
   private toView(payment: Payment): PaymentView {
@@ -542,6 +754,14 @@ export class PaymentService implements PaymentPort {
       attempt: payment.attempt,
       failureReason: payment.failureReason,
       refundPending: payment.refundPending,
+      refundState: payment.refundState,
+      refundAmountTzs: payment.refundAmountTzs,
+      receivedAmountTzs: payment.receivedAmountTzs,
+      reviewReason: payment.reviewReason,
+      reviewNote: payment.reviewNote,
+      reviewFlaggedAt: payment.reviewFlaggedAt,
+      reviewResolvedAt: payment.reviewResolvedAt,
+      abandonedAt: payment.abandonedAt,
       paidAt: payment.paidAt,
       refundedAt: payment.refundedAt,
       createdAt: payment.createdAt,

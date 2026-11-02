@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input, Label, Select, Textarea } from '@/components/ui/input';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
-import { useT } from '@/i18n';
+import { useT, type TranslationKey } from '@/i18n';
 import { api } from '@/lib/api';
 import { eatDateTimeLabel, formatTzs } from '@/lib/eat';
 import { paymentStatusTone } from '@/lib/status';
@@ -24,6 +24,11 @@ interface PaymentRow {
   attempt: number;
   failureReason: string | null;
   refundPending: boolean;
+  refundState: string | null;
+  receivedAmountTzs: number | null;
+  reviewReason: string | null;
+  reviewNote: string | null;
+  reviewFlaggedAt: string | null;
   paidAt: string | null;
   refundedAt: string | null;
   createdAt: string;
@@ -205,6 +210,8 @@ export default function AdminPaymentsPage() {
         </Card>
 
         <div className="flex flex-col gap-4">
+          <ReviewQueueCard />
+
           {detail !== null && (
             <Card>
               <CardHeader className="flex-row items-center justify-between">
@@ -296,6 +303,98 @@ export default function AdminPaymentsPage() {
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * Admin alert queue: payments the server refused to treat as normal (late
+ * success → auto-refund, amount mismatch → never confirmed, stuck after
+ * abandonment, stray attempt). Resolving only records what the admin did.
+ */
+function ReviewQueueCard() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [notes, setNotes] = useState<Record<string, string>>({});
+
+  const review = useQuery({
+    queryKey: ['admin-payments-review'],
+    queryFn: () => api.get<{ items: PaymentRow[] }>('/api/v1/admin/payments/review'),
+  });
+
+  const resolve = useMutation({
+    mutationFn: ({ id, note }: { id: string; note: string }) =>
+      api.post(`/api/v1/admin/payments/${id}/review/resolve`, { note }),
+    onSuccess: async (_result, variables) => {
+      setNotes((current) => ({ ...current, [variables.id]: '' }));
+      await queryClient.invalidateQueries({ queryKey: ['admin-payments-review'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin-payments'] });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('payments.review.title')}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {review.isPending ? (
+          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : review.isError ? (
+          <p className="text-sm text-destructive">{t('common.error')}</p>
+        ) : review.data.items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('payments.review.empty')}</p>
+        ) : (
+          review.data.items.map((payment) => {
+            const note = notes[payment.id] ?? '';
+            return (
+              <div key={payment.id} className="flex flex-col gap-2 rounded-md border border-border p-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium">{formatTzs(payment.amountTzs)}</span>
+                  <Badge tone="warning">{payment.status}</Badge>
+                </div>
+                <p className="text-xs">
+                  {t(`payments.review.reason.${payment.reviewReason ?? ''}` as TranslationKey)}
+                </p>
+                {payment.receivedAmountTzs !== null &&
+                  payment.receivedAmountTzs !== payment.amountTzs && (
+                    <Row
+                      label={t('payments.review.received')}
+                      value={formatTzs(payment.receivedAmountTzs)}
+                    />
+                  )}
+                {payment.refundState !== null && (
+                  <Row label={t('payments.refundState')} value={payment.refundState} />
+                )}
+                {payment.reviewFlaggedAt !== null && (
+                  <span className="text-xs text-muted-foreground">
+                    {eatDateTimeLabel(payment.reviewFlaggedAt)}
+                  </span>
+                )}
+                <Textarea
+                  aria-label={t('payments.review.note')}
+                  placeholder={t('payments.review.note')}
+                  value={note}
+                  onChange={(event) => {
+                    setNotes((current) => ({ ...current, [payment.id]: event.target.value }));
+                  }}
+                  className="min-h-[60px]"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={note.trim().length < 3 || resolve.isPending}
+                  onClick={() => {
+                    resolve.mutate({ id: payment.id, note: note.trim() });
+                  }}
+                >
+                  {t('payments.review.resolve')}
+                </Button>
+              </div>
+            );
+          })
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

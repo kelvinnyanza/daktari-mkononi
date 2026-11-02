@@ -163,6 +163,21 @@ enum PaymentStatus {
   REFUNDED
 }
 
+// Why a payment needs an admin's eyes (Phase 13a). Set together with an
+// audit entry; cleared by an admin resolving it (reviewResolvedAt).
+enum PaymentReviewReason {
+  LATE_SUCCESS // money arrived for an appointment that was no longer payable → auto-refund
+  AMOUNT_MISMATCH // provider-reported amount ≠ amount owed → never confirmed
+  STUCK_PROCESSING // abandoned payment still not final after 24h of status checks
+  STRAY_ATTEMPT // a superseded attempt reported success → money held outside the current attempt
+}
+
+enum RefundState {
+  PROCESSING // refund requested from the provider, outcome not yet final
+  COMPLETED
+  FAILED // provider refused / unsupported → admin retries or completes manually
+}
+
 enum DoctorPaymentStatus {
   PENDING
   PROCESSING
@@ -759,6 +774,19 @@ model Payment {
   refundReason            String?
   refundPending           Boolean           @default(false) // provider refund failed — chase manually
   refundedAt              DateTime?
+  refundState             RefundState?
+  // What the provider says it actually collected (callback/status/statement).
+  receivedAmountTzs       Int?
+  // Admin review queue (late success, amount mismatch, stuck, stray attempt).
+  reviewReason            PaymentReviewReason?
+  reviewNote              String?
+  reviewFlaggedAt         DateTime?
+  reviewResolvedAt        DateTime?
+  reviewResolvedByUserId  String?
+  // The appointment stopped being payable while this payment was in flight:
+  // keep checking the provider until final, then late success ⇒ refund.
+  abandonedAt             DateTime?
+  lastStatusCheckAt       DateTime?
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
 
@@ -766,6 +794,7 @@ model Payment {
   @@index([status])
   @@index([aggregatorTransactionId])
   @@index([status, updatedAt])
+  @@index([reviewReason, reviewResolvedAt])
 }
 
 model DoctorPayment {

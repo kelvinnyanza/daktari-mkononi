@@ -193,9 +193,11 @@ describe('reconciliation (shared code path with the webhook)', () => {
     const reference = deps.mobileMoney.collections[0]!.providerReference;
     deps.mobileMoney.setProviderStatus(reference, 'COMPLETED');
 
-    // The fake repo stamps updatedAt with the real clock, so age the cutoff
-    // relative to real now.
-    clock.now = new Date(Date.now() + 120_000); // older than the 90s cutoff
+    // The fake repo stamps updatedAt with the real clock: back-date the row
+    // (older than the 90s cutoff) instead of moving the injected clock past
+    // the booking's payment window, which would make this a late success.
+    const row = deps.state.paymentRows.get(payment.id)!;
+    deps.state.paymentRows.set(payment.id, { ...row, updatedAt: new Date(NOW.getTime() - 120_000) });
     expect(await payments.reconcilePendingPayments()).toBe(1);
 
     expect(deps.state.paymentRows.get(payment.id)!.status).toBe('COMPLETED');
@@ -442,5 +444,118 @@ describe('webhook route (signature + idempotency over HTTP)', () => {
     expect(unknownResponse.statusCode).toBe(200);
     expect(unknownResponse.json().outcome).toBe('unknown-reference');
     await app.close();
+  });
+});
+
+describe('late / orphan payments (Phase 13a)', () => {
+  const successFor = (payment: { idempotencyKey: string }) => ({
+    transactionId: deps.mobileMoney.collections[0]!.providerReference,
+    externalReference: payment.idempotencyKey,
+    status: 'success' as const,
+  });
+
+  it('success after the expiry sweep cancelled the booking → no confirmation, flagged, refunded, patient told', async () => {
+    const { user, booked, payment } = await bookedMobileMoney(15_000);
+    clock.now = new Date(NOW.getTime() + 31 * 60_000);
+    expect(await appointments.expireStalePayments()).toBe(1);
+    expect(deps.state.paymentRows.get(payment.id)!.abandonedAt).not.toBeNull();
+    expect(deps.state.paymentRows.get(payment.id)!.status).toBe('PROCESSING'); // never closed blind
+
+    const result = await payments.handleWebhook(successFor(payment));
+    expect(result.outcome).toBe('applied');
+
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CANCELLED');
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.reviewReason).toBe('LATE_SUCCESS');
+    expect(row.reviewNote).toBe('APPOINTMENT_CANCELLED');
+    expect(row.status).toBe('REFUNDED');
+    expect(row.refundAmountTzs).toBe(15_000);
+    expect(deps.mobileMoney.refunds).toHaveLength(1);
+    const texts = deps.sms.sent.filter((entry) => entry.to === user.phone).map((entry) => entry.body);
+    expect(texts.some((body) => body.includes('baada ya miadi kuisha'))).toBe(true);
+    expect(texts.some((body) => body.includes('yamerudishwa'))).toBe(true);
+    const actions = deps.state.auditEntries.map((entry) => entry.action);
+    expect(actions).toEqual(
+      expect.arrayContaining(['PAYMENT_ABANDONED', 'PAYMENT_REVIEW_FLAGGED', 'PAYMENT_REFUNDED']),
+    );
+    // The admin alert queue lists it until an admin resolves it.
+    expect((await payments.reviewQueue()).items.map((item) => item.id)).toEqual([payment.id]);
+  });
+
+  it('success after expiresAt but BEFORE the sweep ran still never confirms', async () => {
+    const { booked, payment } = await bookedMobileMoney();
+    clock.now = new Date(NOW.getTime() + 31 * 60_000); // window over, sweep not yet run
+    await payments.handleWebhook(successFor(payment));
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.reviewNote).toBe('APPOINTMENT_EXPIRED');
+    expect(row.status).toBe('REFUNDED');
+  });
+
+  it('patient cancels an unpaid booking → reconciliation keeps checking; late success → refund', async () => {
+    const { user, booked, payment } = await bookedMobileMoney();
+    await appointments.cancelByPatient(user.id, booked.id, 'nimebadili mawazo');
+    expect(deps.state.paymentRows.get(payment.id)!.abandonedAt).not.toBeNull();
+
+    deps.mobileMoney.setProviderStatus(deps.mobileMoney.collections[0]!.providerReference, 'COMPLETED');
+    clock.now = new Date(Date.now() + 120_000);
+    expect(await payments.reconcilePendingPayments()).toBe(1);
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.reviewReason).toBe('LATE_SUCCESS');
+    expect(row.status).toBe('REFUNDED');
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CANCELLED');
+  });
+
+  it('abandoned payment that finally FAILS is just failed — nothing to refund', async () => {
+    const { user, booked, payment } = await bookedMobileMoney();
+    await appointments.cancelByPatient(user.id, booked.id, 'sitaki tena');
+    deps.mobileMoney.setProviderStatus(deps.mobileMoney.collections[0]!.providerReference, 'FAILED', 'timeout');
+    clock.now = new Date(Date.now() + 120_000);
+    await payments.reconcilePendingPayments();
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.status).toBe('FAILED');
+    expect(row.reviewReason).toBeNull();
+    expect(deps.mobileMoney.refunds).toHaveLength(0);
+  });
+
+  it('abandoned and still not final after 24h → flagged STUCK_PROCESSING once', async () => {
+    const { user, booked, payment } = await bookedMobileMoney();
+    await appointments.cancelByPatient(user.id, booked.id, 'nimebadili mawazo');
+    clock.now = new Date(Date.now() + 25 * 60 * 60_000);
+    await payments.reconcilePendingPayments();
+    await payments.reconcilePendingPayments();
+    expect(deps.state.paymentRows.get(payment.id)!.reviewReason).toBe('STUCK_PROCESSING');
+    expect(
+      deps.state.auditEntries.filter((entry) => entry.action === 'PAYMENT_REVIEW_FLAGGED'),
+    ).toHaveLength(1);
+  });
+
+  it('a PENDING payment (never reached the provider) is closed when abandoned', async () => {
+    deps.mobileMoney.nextCollectionThrows('PROVIDER_UNAVAILABLE');
+    const { user, booked, payment } = await bookedMobileMoney();
+    expect(payment.status).toBe('PENDING');
+    await appointments.cancelByPatient(user.id, booked.id, 'mtandao mbovu');
+    expect(deps.state.paymentRows.get(payment.id)!.status).toBe('FAILED');
+  });
+
+  it('the refund is claimed once: concurrent triggers send money back only once', async () => {
+    const { payment } = await bookedMobileMoney();
+    await payments.handleWebhook(successFor(payment));
+    await Promise.all([
+      payments.refundIfPaid(payment.appointmentId!, 'a'),
+      payments.refundIfPaid(payment.appointmentId!, 'b'),
+    ]);
+    expect(deps.mobileMoney.refunds).toHaveLength(1);
+  });
+
+  it('admin resolves a review item with a note (audited); resolving twice is refused', async () => {
+    const { payment } = await bookedMobileMoney();
+    clock.now = new Date(NOW.getTime() + 31 * 60_000);
+    await payments.handleWebhook(successFor(payment));
+    const admin = deps.seedUser({ role: 'PLATFORM_ADMIN' });
+    const view = await payments.resolveReview(admin.id, payment.id, 'Refund confirmed with patient');
+    expect(view.reviewResolvedAt).not.toBeNull();
+    expect((await payments.reviewQueue()).items).toHaveLength(0);
+    await expectApiError(payments.resolveReview(admin.id, payment.id, 'again'), 'REVIEW_NOT_OPEN');
   });
 });

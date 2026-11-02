@@ -341,7 +341,11 @@ export class AppointmentService {
       const applied = await this.applyTransition(appointment, 'PAYMENT_TIMEOUT', null, {
         cancellationReason: 'PAYMENT_TIMEOUT',
       }).catch(() => null); // raced by a payment completion — leave it be
-      if (applied) expired += 1;
+      if (applied) {
+        expired += 1;
+        // The PIN prompt may still be approved: keep watching, never confirm.
+        await this.deps.payments.abandonIfUnpaid(appointment.id, 'PAYMENT_TIMEOUT');
+      }
     }
     return expired;
   }
@@ -369,8 +373,10 @@ export class AppointmentService {
       cancellationReason: reason,
       cancelledByUserId: userId,
     });
-    // A paid appointment cancelled in time gets an automatic full refund.
+    // A paid appointment cancelled in time gets an automatic full refund;
+    // an unpaid one's in-flight payment is watched until final.
     await this.deps.payments.refundIfPaid(appointment.id, `patient-cancel: ${reason}`);
+    await this.deps.payments.abandonIfUnpaid(appointment.id, 'PATIENT_CANCEL');
     return this.toView(applied, { includeCheckInToken: true });
   }
 
@@ -385,6 +391,7 @@ export class AppointmentService {
     });
     // Doctor/system cancellation of a paid appointment → automatic full refund.
     await this.deps.payments.refundIfPaid(appointment.id, `doctor-cancel: ${reason}`);
+    await this.deps.payments.abandonIfUnpaid(appointment.id, 'DOCTOR_CANCEL');
 
     // Tell the patient, in their language.
     const patient = await this.deps.patients.findByIdWithUser(appointment.patientId);
