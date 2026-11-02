@@ -124,3 +124,16 @@ export const markPayoutPaidSchema = z.object({
   reference: z.string().trim().min(3).max(120),
   note: z.string().trim().min(3).max(500),
 });
+
+// ── Admin refunds (Phase 13a) ────────────────────────────────────────────────
+
+/** POST /api/v1/admin/payments/:id/refund — full refund of a COMPLETED payment (audited). */
+export const adminRefundSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+
+/** POST /api/v1/admin/refunds/:id/complete-manually — money returned outside AzamPay. */
+export const completeRefundManuallySchema = z.object({
+  reference: z.string().trim().min(3).max(120),
+  note: z.string().trim().min(3).max(500),
+});

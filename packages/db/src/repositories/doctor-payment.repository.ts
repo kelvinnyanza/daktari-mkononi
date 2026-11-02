@@ -26,6 +26,9 @@ export interface CreateAccrualInput {
   reference: string;
   /** The patient payment it came from (fee / commission / VAT breakdown). */
   paymentId: string | null;
+  /** EARNING (default) or a negative ADJUSTMENT netted in the next payout. */
+  kind?: 'EARNING' | 'ADJUSTMENT';
+  note?: string | null;
   periodStart: Date;
   periodEnd: Date;
 }
@@ -48,10 +51,30 @@ export const doctorPaymentRepository = {
         amountTzs: input.amountTzs,
         reference: input.reference,
         paymentId: input.paymentId,
+        kind: input.kind ?? 'EARNING',
+        note: input.note ?? null,
         periodStart: input.periodStart,
         periodEnd: input.periodEnd,
       },
     });
+  },
+
+  /** The consultation earning that came from this patient payment, if any. */
+  findEarningByPaymentId(paymentId: string): Promise<DoctorPayment | null> {
+    return prisma.doctorPayment.findFirst({ where: { paymentId, kind: 'EARNING' } });
+  },
+
+  /**
+   * Refund before payout: PENDING and not reserved by any payout run →
+   * REVERSED (never paid). Guarded — returns false if a run reserved it or
+   * it moved on, and the caller falls back to a negative adjustment.
+   */
+  async reverseIfUnreserved(id: string, note: string): Promise<boolean> {
+    const { count } = await prisma.doctorPayment.updateMany({
+      where: { id, status: 'PENDING', payoutItemId: null },
+      data: { status: 'REVERSED', note },
+    });
+    return count === 1;
   },
 
   /**

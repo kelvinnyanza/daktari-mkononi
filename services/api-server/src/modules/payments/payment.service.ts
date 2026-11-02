@@ -817,8 +817,47 @@ export class PaymentService implements PaymentPort {
       amountTzs: refunded.refundAmountTzs,
       manual,
     });
+    await this.adjustDoctorEarning(refunded);
     await this.notifyRefund(refunded);
     return refunded;
+  }
+
+  /**
+   * A refunded payment must not leave the doctor paid for it. If the
+   * consultation's earning is still owed and not reserved by a payout run it
+   * is REVERSED (never paid); otherwise — reserved, being paid, paid, or a
+   * failed payout awaiting retry — a negative ADJUSTMENT is accrued and netted
+   * from the doctor's next payout. Idempotent (`refund-adjustment:<id>`).
+   */
+  private async adjustDoctorEarning(payment: Payment): Promise<void> {
+    const earning = await this.deps.doctorPayments.findEarningByPaymentId(payment.id);
+    if (!earning || earning.status === 'REVERSED') return;
+    const note = `refunded: ${payment.refundReason ?? 'refund'}`;
+    if (await this.deps.doctorPayments.reverseIfUnreserved(earning.id, note)) {
+      await this.audit(null, 'DOCTOR_EARNING_REVERSED', payment.id, {
+        doctorPaymentId: earning.id,
+        amountTzs: earning.amountTzs,
+      });
+      return;
+    }
+    const adjustment = await this.deps.doctorPayments.createIfMissing({
+      doctorId: earning.doctorId,
+      amountTzs: -earning.amountTzs,
+      reference: `refund-adjustment:${payment.id}`,
+      paymentId: null,
+      kind: 'ADJUSTMENT',
+      note: `${note} (earning ${earning.status.toLowerCase()} before the refund)`,
+      periodStart: this.now(),
+      periodEnd: this.now(),
+    });
+    if (adjustment) {
+      await this.audit(null, 'DOCTOR_EARNING_ADJUSTED', payment.id, {
+        doctorPaymentId: earning.id,
+        adjustmentId: adjustment.id,
+        amountTzs: -earning.amountTzs,
+        earningStatus: earning.status,
+      });
+    }
   }
 
   private async notifyRefund(payment: Payment): Promise<void> {
@@ -1011,6 +1050,78 @@ export class PaymentService implements PaymentPort {
       refundPending: payment.refundPending,
     });
     return { paymentId: payment.id, recorded: true };
+  }
+
+  /**
+   * Admin: full refund of a COMPLETED payment (complaint, amount mismatch,
+   * goodwill). Same guarded claim as automatic refunds — never twice.
+   */
+  async adminRefund(adminUserId: string, paymentId: string, reason: string): Promise<PaymentView> {
+    const payment = await this.deps.payments.findById(paymentId);
+    if (!payment) throw PAYMENT_NOT_FOUND();
+    if (payment.status !== 'COMPLETED' || (payment.refundState !== null && payment.refundState !== 'FAILED')) {
+      throw new ApiError(
+        409,
+        'NOT_REFUNDABLE',
+        msg('Malipo haya hayawezi kurudishwa sasa', 'This payment cannot be refunded now'),
+        { status: payment.status, refundState: payment.refundState },
+      );
+    }
+    await this.audit(adminUserId, 'PAYMENT_REFUND_ADMIN_REQUESTED', payment.id, { reason });
+    return this.toView(await this.refundPayment(payment, `admin: ${reason}`, adminUserId));
+  }
+
+  /** Admin: retry a refund the provider refused / could not pay. */
+  async retryRefund(adminUserId: string, paymentId: string): Promise<PaymentView> {
+    const payment = await this.deps.payments.findById(paymentId);
+    if (!payment) throw PAYMENT_NOT_FOUND();
+    if (payment.status !== 'COMPLETED' || payment.refundState !== 'FAILED') {
+      throw new ApiError(
+        409,
+        'REFUND_NOT_RETRYABLE',
+        msg('Marejesho haya hayawezi kujaribiwa tena', 'Only a FAILED refund can be retried'),
+        { refundState: payment.refundState },
+      );
+    }
+    return this.toView(await this.refundPayment(payment, payment.refundReason ?? 'retry', adminUserId));
+  }
+
+  /**
+   * Admin: the money was returned outside AzamPay (or AzamPay confirmed a
+   * timed-out refund by phone). Allowed when the refund FAILED, or is
+   * PROCESSING with no provider reference (outcome unknown) — never while a
+   * known refund disbursement is in flight, which could refund twice.
+   */
+  async completeRefundManually(
+    adminUserId: string,
+    paymentId: string,
+    reference: string,
+    note: string,
+  ): Promise<PaymentView> {
+    const payment = await this.deps.payments.findById(paymentId);
+    if (!payment) throw PAYMENT_NOT_FOUND();
+    const allowed =
+      payment.status === 'COMPLETED' &&
+      (payment.refundState === 'FAILED' || (payment.refundState === 'PROCESSING' && payment.refundReference === null));
+    if (!allowed) {
+      throw new ApiError(
+        409,
+        'REFUND_NOT_MANUALLY_COMPLETABLE',
+        msg(
+          'Marejesho haya hayawezi kukamilishwa kwa mkono kwa sasa',
+          'This refund cannot be completed manually in its current state',
+        ),
+        { refundState: payment.refundState },
+      );
+    }
+    const prepared =
+      payment.refundAmountTzs === null
+        ? await this.deps.payments.update(payment.id, { refundAmountTzs: payment.receivedAmountTzs ?? payment.amountTzs })
+        : payment;
+    const refunded = await this.completeRefund(prepared, `MANUAL:${reference}`, adminUserId, true);
+    if (!refunded) throw PAYMENT_NOT_FOUND();
+    await this.audit(adminUserId, 'PAYMENT_REFUND_COMPLETED_MANUALLY', payment.id, { reference, note });
+    return this.toView(refunded);
   }
 
   /** Admin review queue: late successes, amount mismatches, stuck and stray payments. */

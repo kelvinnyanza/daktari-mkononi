@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input, Label, Select, Textarea } from '@/components/ui/input';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { useT, type TranslationKey } from '@/i18n';
-import { api } from '@/lib/api';
+import { ApiError, api } from '@/lib/api';
 import { eatDateTimeLabel, formatTzs } from '@/lib/eat';
 import { paymentStatusTone } from '@/lib/status';
 
@@ -265,6 +265,15 @@ export default function AdminPaymentsPage() {
                 {detail.appointmentId !== null && (
                   <Row label="Appointment" value={detail.appointmentId} />
                 )}
+                {detail.status === 'COMPLETED' &&
+                  (detail.refundState === null || detail.refundState === 'FAILED') && (
+                    <AdminRefundForm
+                      paymentId={detail.id}
+                      onDone={() => {
+                        setDetail(null);
+                      }}
+                    />
+                  )}
               </CardContent>
             </Card>
           )}
@@ -312,6 +321,7 @@ export default function AdminPaymentsPage() {
                     {chaseDone === payment.id && (
                       <p className="text-xs text-muted-foreground">{t('payments.chaseRecorded')}</p>
                     )}
+                    <RefundActions payment={payment} />
                   </div>
                 ))
               )}
@@ -412,6 +422,113 @@ function ReviewQueueCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Stuck refund: retry through AzamPay (FAILED only) or record a manual refund with its reference. */
+function RefundActions({ payment }: { payment: PaymentRow }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [reference, setReference] = useState('');
+  const [note, setNote] = useState('');
+  const act = useMutation({
+    mutationFn: ({ path, body }: { path: string; body?: unknown }) => api.post(path, body),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin-refunds-pending'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin-payments'] });
+    },
+  });
+  return (
+    <div className="flex flex-col gap-1 border-t border-border pt-2">
+      {payment.refundState === 'FAILED' && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={act.isPending}
+          onClick={() => {
+            act.mutate({ path: `/api/v1/admin/refunds/${payment.id}/retry` });
+          }}
+        >
+          {t('payments.refund.retry')}
+        </Button>
+      )}
+      <Input
+        aria-label={t('payments.refund.reference')}
+        placeholder={t('payments.refund.reference')}
+        value={reference}
+        onChange={(event) => {
+          setReference(event.target.value);
+        }}
+      />
+      <Input
+        aria-label={t('payments.refund.note')}
+        placeholder={t('payments.refund.note')}
+        value={note}
+        onChange={(event) => {
+          setNote(event.target.value);
+        }}
+      />
+      <Button
+        size="sm"
+        disabled={reference.trim().length < 3 || note.trim().length < 3 || act.isPending}
+        onClick={() => {
+          act.mutate({
+            path: `/api/v1/admin/refunds/${payment.id}/complete-manually`,
+            body: { reference: reference.trim(), note: note.trim() },
+          });
+        }}
+      >
+        {t('payments.refund.completeManually')}
+      </Button>
+      {act.isError && (
+        <p className="text-xs text-destructive">
+          {act.error instanceof ApiError ? act.error.message : t('common.error')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Full refund of a completed payment (complaint, amount mismatch). The doctor's earning is reversed or adjusted server-side. */
+function AdminRefundForm({ paymentId, onDone }: { paymentId: string; onDone: () => void }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [reason, setReason] = useState('');
+  const refund = useMutation({
+    mutationFn: () => api.post(`/api/v1/admin/payments/${paymentId}/refund`, { reason: reason.trim() }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin-payments'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin-refunds-pending'] });
+      onDone();
+    },
+  });
+  return (
+    <div className="mt-2 flex flex-col gap-1 border-t border-border pt-2">
+      <Input
+        aria-label={t('payments.refund.reason')}
+        placeholder={t('payments.refund.reason')}
+        value={reason}
+        onChange={(event) => {
+          setReason(event.target.value);
+        }}
+      />
+      <p className="text-xs text-muted-foreground">{t('payments.refund.earningNote')}</p>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={reason.trim().length < 3 || refund.isPending}
+        onClick={() => {
+          if (window.confirm(t('payments.refund.confirm'))) refund.mutate();
+        }}
+      >
+        {t('payments.refund.full')}
+      </Button>
+      {refund.isError && (
+        <p className="text-xs text-destructive">
+          {refund.error instanceof ApiError ? refund.error.message : t('common.error')}
+        </p>
+      )}
+    </div>
   );
 }
 

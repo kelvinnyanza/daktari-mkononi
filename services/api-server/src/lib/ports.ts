@@ -354,6 +354,8 @@ export interface PayoutRepoPort {
 export interface DoctorPaymentRepoPort {
   createIfMissing(input: CreateAccrualInput): Promise<DoctorPayment | null>;
   totalsByStatus(doctorId: string): Promise<Record<DoctorPaymentStatus, number>>;
+  findEarningByPaymentId(paymentId: string): Promise<DoctorPayment | null>;
+  reverseIfUnreserved(id: string, note: string): Promise<boolean>;
   listForDoctor(
     doctorId: string,
     query: { page: number; pageSize: number },

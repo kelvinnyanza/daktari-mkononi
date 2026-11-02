@@ -2,6 +2,8 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
   adminPaymentsQuerySchema,
+  adminRefundSchema,
+  completeRefundManuallySchema,
   doctorCommissionOverrideSchema,
   feePreviewQuerySchema,
   updateFeeSettingsSchema,
@@ -126,6 +128,36 @@ export function buildPaymentRoutes(
         const { id } = paramsSchema.parse(request.params);
         const input = doctorCommissionOverrideSchema.parse(request.body);
         return fees.setDoctorOverride(request.auth!.userId, id, input);
+      },
+    );
+
+    // ── Refund administration (audited) ─────────────────────────────────────────
+    app.post(
+      '/admin/payments/:id/refund',
+      { preHandler: [authenticate, authorize('admin:dashboard')] },
+      async (request) => {
+        const { id } = paramsSchema.parse(request.params);
+        const input = adminRefundSchema.parse(request.body);
+        return service.adminRefund(request.auth!.userId, id, input.reason);
+      },
+    );
+
+    app.post(
+      '/admin/refunds/:id/retry',
+      { preHandler: [authenticate, authorize('admin:dashboard')] },
+      async (request) => {
+        const { id } = paramsSchema.parse(request.params);
+        return service.retryRefund(request.auth!.userId, id);
+      },
+    );
+
+    app.post(
+      '/admin/refunds/:id/complete-manually',
+      { preHandler: [authenticate, authorize('admin:dashboard')] },
+      async (request) => {
+        const { id } = paramsSchema.parse(request.params);
+        const input = completeRefundManuallySchema.parse(request.body);
+        return service.completeRefundManually(request.auth!.userId, id, input.reference, input.note);
       },
     );
 

@@ -820,3 +820,85 @@ describe('refunds as disbursements (Phase 13a — AzamPay has no refund API)', (
     expect(deps.state.paymentRows.get(payment.id)!).toMatchObject({ providerFeeTzs: 300, providerFeeSource: 'PROVIDER' });
   });
 });
+
+describe('admin refunds + doctor earning reversal/adjustment (Phase 13a)', () => {
+  /** Paid appointment whose consultation completed → a PENDING earning exists. */
+  async function paidAndEarned() {
+    const context = await bookedMobileMoney(15_000);
+    await signedCallback({
+      transactionId: deps.mobileMoney.collections[0]!.providerReference,
+      externalReference: context.payment.idempotencyKey,
+      status: 'success',
+    });
+    await payments.accrueForConsultation({
+      appointmentId: context.booked.id,
+      doctorId: context.doctor.id,
+      consultationId: 'consult-1',
+    });
+    const earning = [...deps.state.doctorPaymentRows.values()][0]!;
+    return { ...context, earning, admin: deps.seedUser({ role: 'PLATFORM_ADMIN' }) };
+  }
+
+  it('refund before payout → the earning is REVERSED (never paid), audited', async () => {
+    const { payment, earning, admin } = await paidAndEarned();
+    expect(earning.amountTzs).toBe(11_460);
+    const view = await payments.adminRefund(admin.id, payment.id, 'Patient complaint upheld');
+    expect(view.status).toBe('REFUNDED');
+    expect(deps.state.doctorPaymentRows.get(earning.id)!.status).toBe('REVERSED');
+    const actions = deps.state.auditEntries.map((entry) => entry.action);
+    expect(actions).toEqual(expect.arrayContaining(['PAYMENT_REFUND_ADMIN_REQUESTED', 'DOCTOR_EARNING_REVERSED']));
+  });
+
+  it('refund after the earning was PAID → one negative adjustment for the next payout; refunding again is refused', async () => {
+    const { payment, earning, admin } = await paidAndEarned();
+    deps.state.doctorPaymentRows.set(earning.id, { ...earning, status: 'PAID', payoutItemId: 'item-1' });
+    await payments.adminRefund(admin.id, payment.id, 'Goodwill');
+    const rows = [...deps.state.doctorPaymentRows.values()];
+    const adjustment = rows.find((row) => row.kind === 'ADJUSTMENT')!;
+    expect(adjustment).toMatchObject({
+      amountTzs: -11_460,
+      status: 'PENDING',
+      payoutItemId: null,
+      reference: `refund-adjustment:${payment.id}`,
+    });
+    expect(deps.state.doctorPaymentRows.get(earning.id)!.status).toBe('PAID'); // history untouched
+    await expectApiError(payments.adminRefund(admin.id, payment.id, 'again'), 'NOT_REFUNDABLE');
+    expect(rows.filter((row) => row.kind === 'ADJUSTMENT')).toHaveLength(1);
+  });
+
+  it('an earning reserved by a draft payout run is adjusted, not reversed (the run already counts it)', async () => {
+    const { payment, earning, admin } = await paidAndEarned();
+    deps.state.doctorPaymentRows.set(earning.id, { ...earning, payoutItemId: 'draft-item' });
+    await payments.adminRefund(admin.id, payment.id, 'Complaint');
+    expect(deps.state.doctorPaymentRows.get(earning.id)!.status).toBe('PENDING');
+    expect([...deps.state.doctorPaymentRows.values()].some((row) => row.amountTzs === -11_460)).toBe(true);
+  });
+
+  it('retry a FAILED refund (only FAILED); manual completion needs a reference and is refused while a disbursement is in flight', async () => {
+    const { payment, admin } = await paidAndEarned();
+    deps.mobileMoney.nextRefundThrows('UNSUPPORTED_DESTINATION');
+    await payments.adminRefund(admin.id, payment.id, 'Complaint');
+    expect(deps.state.paymentRows.get(payment.id)!.refundState).toBe('FAILED');
+
+    deps.mobileMoney.nextRefund('pending');
+    const retried = await payments.retryRefund(admin.id, payment.id);
+    expect(retried.refundState).toBe('PROCESSING');
+    expect(deps.mobileMoney.refunds.at(-1)!.reference).toBe(`r2-${payment.id}`);
+    await expectApiError(payments.retryRefund(admin.id, payment.id), 'REFUND_NOT_RETRYABLE');
+    await expectApiError(
+      payments.completeRefundManually(admin.id, payment.id, 'MPESA-1', 'sent'),
+      'REFUND_NOT_MANUALLY_COMPLETABLE',
+    );
+  });
+
+  it('manual completion of a FAILED refund → REFUNDED with the reference, earning reversed, audited', async () => {
+    const { payment, earning, admin } = await paidAndEarned();
+    deps.mobileMoney.nextRefundThrows('UNSUPPORTED_DESTINATION');
+    await payments.refundIfPaid(payment.appointmentId!, 'doctor-cancel');
+    const view = await payments.completeRefundManually(admin.id, payment.id, 'MPESA-QX99', 'Sent from company wallet');
+    expect(view).toMatchObject({ status: 'REFUNDED', refundState: 'COMPLETED', refundPending: false });
+    expect(deps.state.paymentRows.get(payment.id)!.refundReference).toBe('MANUAL:MPESA-QX99');
+    expect(deps.state.doctorPaymentRows.get(earning.id)!.status).toBe('REVERSED');
+    expect(deps.state.auditEntries.some((entry) => entry.action === 'PAYMENT_REFUND_COMPLETED_MANUALLY')).toBe(true);
+  });
+});

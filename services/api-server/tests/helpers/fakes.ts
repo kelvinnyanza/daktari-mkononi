@@ -1155,8 +1155,8 @@ export function makeFakeDeps(): FakeDeps {
           status: 'PENDING',
           reference: input.reference,
           paymentId: input.paymentId,
-          kind: 'EARNING',
-          note: null,
+          kind: input.kind ?? 'EARNING',
+          note: input.note ?? null,
           failureReason: null,
           payoutItemId: null,
           paidAt: null,
@@ -1165,6 +1165,16 @@ export function makeFakeDeps(): FakeDeps {
         };
         doctorPaymentRows.set(accrual.id, accrual);
         return Promise.resolve(accrual);
+      },
+      findEarningByPaymentId: (paymentId) =>
+        Promise.resolve(
+          [...doctorPaymentRows.values()].find((row) => row.paymentId === paymentId && row.kind === 'EARNING') ?? null,
+        ),
+      reverseIfUnreserved: (id, note) => {
+        const row = doctorPaymentRows.get(id);
+        if (!row || row.status !== 'PENDING' || row.payoutItemId !== null) return Promise.resolve(false);
+        doctorPaymentRows.set(id, { ...row, status: 'REVERSED', note, updatedAt: new Date() });
+        return Promise.resolve(true);
       },
       totalsByStatus: (doctorId) => {
         const totals = { PENDING: 0, PROCESSING: 0, PAID: 0, FAILED: 0, REVERSED: 0 };
