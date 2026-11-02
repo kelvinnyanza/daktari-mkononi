@@ -278,9 +278,17 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
   await app.register(buildPaymentRoutes(paymentService, feeSettingsService, options.deps.sessions, now), {
     prefix: '/api/v1',
   });
-  await app.register(buildAzamPayWebhookRoutes(paymentService, options.deps.auditLogs), {
-    prefix: '/webhooks/azampay',
-  });
+  await app.register(
+    buildAzamPayWebhookRoutes(
+      paymentService,
+      options.deps.mobileMoney,
+      options.deps.auditLogs,
+      async (body) => (await paymentService.handleDisbursementCallback(body)).outcome,
+    ),
+    {
+      prefix: '/webhooks/azampay',
+    },
+  );
   // Dev-only helpers — never registered in production (see dev.routes.ts).
   if (env.NODE_ENV !== 'production') {
     await app.register(

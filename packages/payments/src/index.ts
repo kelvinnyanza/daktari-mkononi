@@ -11,7 +11,15 @@ export {
 export type { FeeBreakdown, FeeRates, VatMode } from './money.js';
 export { MobileMoneyError } from './port.js';
 export type {
+  CallbackSignatureCheck,
+  CheckoutCallbackSignedFields,
   CollectionStatus,
+  DisburseInput,
+  DisburseResult,
+  NameLookupInput,
+  NameLookupResult,
+  PayoutDestinationOperator,
+  StatusHint,
   InitiateCollectionInput,
   InitiateCollectionResult,
   MobileMoneyErrorCode,
@@ -26,8 +34,21 @@ export { MNO_PREFIXES, deriveMno } from './mno-prefixes.js';
 export type { MnoEntry } from './mno-prefixes.js';
 export {
   AzamPayProvider,
-  azamPayWebhookSchema,
-  verifyAzamPayWebhookSignature,
+  DEFAULT_AZAMPAY_TIMEOUTS,
+  azamPayCallbackSchema,
+  azamPayCallbackSignedData,
+  azamPayChecksum,
+  azamPayDisburseBankName,
+  azamPayDisbursementCallbackSchema,
+  mapAzamPayStatus,
+  parseAzamPayAmount,
+  verifyAzamPayRsaSignature,
 } from './azampay.js';
-export type { AzamPayOptions, AzamPayWebhookBody } from './azampay.js';
+export type {
+  AzamPayCallbackBody,
+  AzamPayDisbursementCallbackBody,
+  AzamPayDisbursementSource,
+  AzamPayOptions,
+  AzamPayTimeouts,
+} from './azampay.js';
 export { FakePayments } from './fake.js';

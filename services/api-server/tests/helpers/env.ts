@@ -15,7 +15,6 @@ export function applyTestEnv(): void {
     ENCRYPTION_KEY: '0f'.repeat(32),
     OTP_PEPPER: 'pepper-'.padEnd(32, 'x'),
     FILE_SIGNING_SECRET: 'files-'.padEnd(32, 'y'),
-    AZAMPAY_WEBHOOK_SECRET: 'whsec-test-secret-value',
     ANTHROPIC_API_KEY: 'sk-ant-test',
     AWS_ACCESS_KEY_ID: 'AKIATEST',
     AWS_SECRET_ACCESS_KEY: 'aws-secret',

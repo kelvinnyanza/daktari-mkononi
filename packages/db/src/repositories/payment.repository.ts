@@ -54,6 +54,25 @@ export const paymentRepository = {
     return prisma.payment.findFirst({ where: { aggregatorTransactionId: providerReference } });
   },
 
+  /** The payment a refund disbursement (pgReferenceId) belongs to. */
+  findByRefundReference(refundReference: string): Promise<Payment | null> {
+    return prisma.payment.findFirst({ where: { refundReference } });
+  },
+
+  /** Refund disbursements requested but not final, untouched since the cutoff. */
+  listRefundsInFlight(cutoff: Date, limit = 50): Promise<Payment[]> {
+    return prisma.payment.findMany({
+      where: {
+        status: 'COMPLETED',
+        refundState: 'PROCESSING',
+        refundReference: { not: null },
+        updatedAt: { lt: cutoff },
+      },
+      orderBy: [{ lastStatusCheckAt: { sort: 'asc', nulls: 'first' } }, { updatedAt: 'asc' }],
+      take: limit,
+    });
+  },
+
   create(input: CreatePaymentInput): Promise<Payment> {
     return prisma.payment.create({ data: input });
   },
@@ -184,10 +203,19 @@ export const paymentRepository = {
     return { items, total };
   },
 
-  /** COMPLETED payments whose provider refund failed — manual chase list. */
-  listRefundPending(): Promise<Payment[]> {
+  /**
+   * Refunds needing an admin: the provider refused / cannot pay the wallet
+   * (refundPending), or a refund request whose outcome is still unknown
+   * after `staleBefore` (sent, but no reference and no answer).
+   */
+  listRefundPending(staleBefore: Date): Promise<Payment[]> {
     return prisma.payment.findMany({
-      where: { refundPending: true },
+      where: {
+        OR: [
+          { refundPending: true },
+          { status: 'COMPLETED', refundState: 'PROCESSING', updatedAt: { lt: staleBefore } },
+        ],
+      },
       orderBy: { updatedAt: 'asc' },
     });
   },

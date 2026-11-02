@@ -4,7 +4,13 @@ import {
   MobileMoneyError,
   calculateFees,
   deriveMno,
+  mapAzamPayStatus,
+  parseAzamPayAmount,
+  type AzamPayCallbackBody,
+  type AzamPayDisbursementCallbackBody,
+  type CallbackSignatureCheck,
   type MobileMoneyPort,
+  type QueryStatusResult,
 } from '@daktari/payments';
 import type { AdminPaymentsQuery, Pagination } from '@daktari/schemas';
 import type { SmsPort } from '@daktari/notifications';
@@ -60,6 +66,10 @@ export interface PaymentResultInput {
   failureReason?: string;
   /** Whole TZS the provider says it collected, when it says. */
   amountTzs?: number;
+  /** The provider sent an amount we could not read as whole TZS → never confirm on it. */
+  amountUnreadable?: boolean;
+  /** AzamPay's own charge on this collection, when its answer carries one. */
+  providerFeeTzs?: number;
 }
 
 /** Appointment states that mean "this payment already bought something". */
@@ -319,7 +329,10 @@ export class PaymentService implements PaymentPort {
           status: 'COMPLETED',
           paidAt: this.now(),
           externalReference: result.providerReference,
-          receivedAmountTzs: reported ?? payment.amountTzs,
+          receivedAmountTzs: result.amountUnreadable === true ? null : (reported ?? payment.amountTzs),
+          ...(result.providerFeeTzs !== undefined
+            ? { providerFeeTzs: result.providerFeeTzs, providerFeeSource: 'PROVIDER' }
+            : {}),
         },
       );
       if (!applied) return { applied: false }; // replay / race → no-op
@@ -328,13 +341,15 @@ export class PaymentService implements PaymentPort {
         source,
         amountReported: reported !== undefined,
       });
-      if (reported !== undefined && reported !== payment.amountTzs) {
+      if (result.amountUnreadable === true || (reported !== undefined && reported !== payment.amountTzs)) {
         // Under- or over-payment: never confirm on it, never auto-refund an
         // amount nobody has checked — an admin decides (refund / top-up).
         await this.flagForReview(
           applied,
           'AMOUNT_MISMATCH',
-          `owed TZS ${payment.amountTzs}, provider reported TZS ${reported}`,
+          result.amountUnreadable === true
+            ? `owed TZS ${payment.amountTzs}, provider amount unreadable`
+            : `owed TZS ${payment.amountTzs}, provider reported TZS ${reported}`,
         );
         return { applied: true };
       }
@@ -470,38 +485,153 @@ export class PaymentService implements PaymentPort {
     }
   }
 
-  // ── Webhook ────────────────────────────────────────────────────────────────
+  // ── Callbacks (AzamPay → POST /webhooks/azampay) ───────────────────────────
 
-  /** Body is already signature-verified and Zod-validated by the route. */
-  async handleWebhook(body: {
-    transactionId: string;
-    externalReference: string;
-    status: 'success' | 'failure';
-    amount?: number | undefined;
-    message?: string | undefined;
-  }): Promise<{ outcome: 'applied' | 'noop' | 'unknown-reference' }> {
-    const payment =
-      (await this.deps.payments.findByIdempotencyKey(body.externalReference)) ??
-      (await this.deps.payments.findByProviderReference(body.transactionId));
+  /**
+   * Checkout callback, already Zod-validated and signature-CHECKED by the
+   * route (an outright invalid signature never gets here — 401). Trust model:
+   *
+   *  1. Always ask AzamPay (status query) before trusting the callback. A
+   *     final status answer is what gets applied — whatever the callback said.
+   *  2. Status not final yet / status API unavailable: only a callback whose
+   *     signature is 'valid' (covers the status field) is applied on its own.
+   *     Unsigned / refs-only / unverifiable callbacks are deferred — the
+   *     reconciliation sweep settles them from the status API.
+   *  3. Signed callback and status answer DISAGREE: nothing is applied; the
+   *     payment is flagged STATUS_CONFLICT for an admin.
+   *
+   * Unknown references answer 200 (audited): never teach the provider to retry.
+   */
+  async handleCheckoutCallback(
+    body: AzamPayCallbackBody,
+    signature: CallbackSignatureCheck,
+  ): Promise<{ outcome: 'applied' | 'noop' | 'deferred' | 'conflict' | 'stray-attempt' | 'unknown-reference' }> {
+    const providerRefs = [body.externalreference, body.reference, body.transid].filter(
+      (ref): ref is string => ref !== undefined && ref !== '',
+    );
+    let payment = await this.deps.payments.findByIdempotencyKey(body.utilityref);
+    for (const ref of providerRefs) {
+      if (payment) break;
+      payment = await this.deps.payments.findByProviderReference(ref);
+    }
+    const claimed = mapAzamPayStatus(body.transactionstatus);
+    const amount = parseAzamPayAmount(body.amount);
+
     if (!payment) {
-      // 200 regardless — never teach the provider to retry unknowns.
+      const stray = await this.strayAttempt(body.utilityref);
+      if (stray && claimed === 'COMPLETED' && signature === 'valid') {
+        await this.flagForReview(
+          stray,
+          'STRAY_ATTEMPT',
+          `superseded attempt ${body.utilityref} reported success` +
+            (amount.amountTzs !== undefined ? ` for TZS ${amount.amountTzs}` : ''),
+        );
+        return { outcome: 'stray-attempt' };
+      }
       await this.audit(null, 'WEBHOOK_UNKNOWN_REFERENCE', null, {
-        externalReference: body.externalReference,
-        transactionId: body.transactionId,
+        utilityref: body.utilityref,
+        providerRefs,
+        signature,
       });
       return { outcome: 'unknown-reference' };
     }
-    const { applied } = await this.applyPaymentResult(
-      payment,
-      {
-        status: body.status === 'success' ? 'COMPLETED' : 'FAILED',
-        providerReference: body.transactionId,
-        ...(body.message !== undefined ? { failureReason: body.message } : {}),
-        ...(body.amount !== undefined ? { amountTzs: body.amount } : {}),
-      },
-      'webhook',
-    );
-    return { outcome: applied ? 'applied' : 'noop' };
+
+    // A checkout that timed out (OUTCOME_UNKNOWN) never learned AzamPay's id.
+    const providerReference = payment.aggregatorTransactionId ?? providerRefs[0] ?? null;
+    if (payment.aggregatorTransactionId === null && providerReference !== null) {
+      payment = await this.deps.payments.update(payment.id, { aggregatorTransactionId: providerReference });
+    }
+
+    let confirmed: QueryStatusResult | null = null;
+    if (providerReference !== null) {
+      confirmed = await this.deps.mobileMoney
+        .queryStatus(providerReference, { phoneE164: payment.payerPhone })
+        .catch(() => null);
+    }
+
+    if (confirmed !== null && confirmed.status !== 'PENDING') {
+      if (signature === 'valid' && claimed !== 'PENDING' && confirmed.status !== claimed) {
+        await this.flagForReview(
+          payment,
+          'STATUS_CONFLICT',
+          `signed callback says ${body.transactionstatus}, status API says ${confirmed.status}`,
+        );
+        return { outcome: 'conflict' };
+      }
+      const { applied } = await this.applyPaymentResult(
+        payment,
+        this.resultFrom(confirmed, confirmed.amountTzs !== undefined ? {} : amount),
+        'webhook',
+      );
+      return { outcome: applied ? 'applied' : 'noop' };
+    }
+
+    if (signature === 'valid' && claimed !== 'PENDING') {
+      const { applied } = await this.applyPaymentResult(
+        payment,
+        {
+          status: claimed,
+          providerReference: providerReference ?? body.utilityref,
+          ...(claimed === 'FAILED' && body.message !== undefined ? { failureReason: body.message } : {}),
+          ...(amount.amountTzs !== undefined ? { amountTzs: amount.amountTzs } : {}),
+          ...(amount.unreadable ? { amountUnreadable: true } : {}),
+        },
+        'webhook',
+      );
+      return { outcome: applied ? 'applied' : 'noop' };
+    }
+
+    await this.audit(null, 'WEBHOOK_DEFERRED', payment.id, {
+      signature,
+      status: confirmed === null ? 'unavailable' : 'pending',
+    });
+    return { outcome: 'deferred' };
+  }
+
+  /**
+   * Disbursement callback (refund disbursements here; payouts in the payout
+   * service). AzamPay documents no signature for it, so its body is NEVER
+   * trusted: it only triggers an immediate status query for that reference.
+   */
+  async handleDisbursementCallback(
+    body: AzamPayDisbursementCallbackBody,
+  ): Promise<{ outcome: 'applied' | 'pending' | 'not-a-refund' }> {
+    let payment =
+      body.pgReferenceId !== undefined ? await this.deps.payments.findByRefundReference(body.pgReferenceId) : null;
+    // Our own reference r<attempt>-<paymentId> (a refund whose request timed
+    // out never learned AzamPay's pgReferenceId).
+    const ours = /^r\d+-(.+)$/.exec(body.initiatorReferenceId ?? '');
+    if (!payment && ours?.[1] !== undefined) {
+      payment = await this.deps.payments.findById(ours[1]);
+      if (payment && payment.refundReference === null && body.pgReferenceId !== undefined) {
+        payment = await this.deps.payments.update(payment.id, { refundReference: body.pgReferenceId });
+      }
+    }
+    if (!payment) return { outcome: 'not-a-refund' };
+    const applied = await this.reconcileRefund(payment);
+    return { outcome: applied ? 'applied' : 'pending' };
+  }
+
+  /** A callback for `<appointmentId>:<n>` whose attempt is no longer the current key. */
+  private async strayAttempt(utilityref: string): Promise<Payment | null> {
+    const cut = utilityref.lastIndexOf(':');
+    if (cut <= 0) return null;
+    return this.deps.payments.findByIdempotencyKeyPrefix(utilityref.slice(0, cut + 1));
+  }
+
+  private resultFrom(
+    status: QueryStatusResult,
+    callbackAmount: { amountTzs?: number; unreadable?: boolean } = {},
+  ): PaymentResultInput {
+    const amountTzs = status.amountTzs ?? callbackAmount.amountTzs;
+    return {
+      status: status.status === 'COMPLETED' ? 'COMPLETED' : 'FAILED',
+      providerReference: status.providerReference,
+      ...(status.failureReason !== undefined ? { failureReason: status.failureReason } : {}),
+      ...(amountTzs !== undefined ? { amountTzs } : {}),
+      ...(callbackAmount.unreadable === true && status.amountTzs === undefined ? { amountUnreadable: true } : {}),
+      ...(status.providerFeeTzs !== undefined ? { providerFeeTzs: status.providerFeeTzs } : {}),
+    };
   }
 
   // ── Reconciliation ─────────────────────────────────────────────────────────
@@ -511,7 +641,9 @@ export class PaymentService implements PaymentPort {
    * flow through applyPaymentResult — the exact same code path as the
    * webhook. Provider still pending → untouched. Provider errors → skipped.
    * Abandoned payments stay in this loop until final; after 24h without a
-   * final answer they are flagged STUCK_PROCESSING for an admin.
+   * final answer they are flagged STUCK_PROCESSING for an admin. Payments in
+   * an open STATUS_CONFLICT review are left for the admin. Refund
+   * disbursements in flight are polled the same way.
    */
   async reconcilePendingPayments(): Promise<number> {
     const now = this.now();
@@ -520,22 +652,16 @@ export class PaymentService implements PaymentPort {
     let applied = 0;
     for (const payment of stuck) {
       if (payment.aggregatorTransactionId === null) continue;
+      if (payment.reviewReason === 'STATUS_CONFLICT' && payment.reviewResolvedAt === null) continue;
       try {
-        const status = await this.deps.mobileMoney.queryStatus(payment.aggregatorTransactionId);
+        const status = await this.deps.mobileMoney.queryStatus(payment.aggregatorTransactionId, {
+          phoneE164: payment.payerPhone,
+        });
         if (status.status === 'PENDING') {
           await this.deps.payments.update(payment.id, { lastStatusCheckAt: now });
           continue;
         }
-        const result = await this.applyPaymentResult(
-          payment,
-          {
-            status: status.status,
-            providerReference: status.providerReference,
-            ...(status.failureReason !== undefined ? { failureReason: status.failureReason } : {}),
-            ...(status.amountTzs !== undefined ? { amountTzs: status.amountTzs } : {}),
-          },
-          'reconciliation',
-        );
+        const result = await this.applyPaymentResult(payment, this.resultFrom(status), 'reconciliation');
         if (result.applied) applied += 1;
       } catch {
         // Provider unreachable — leave for the next sweep (least-recently-checked first).
@@ -549,7 +675,43 @@ export class PaymentService implements PaymentPort {
     for (const payment of longAbandoned) {
       await this.flagForReview(payment, 'STUCK_PROCESSING', 'abandoned payment not final after 24h');
     }
+
+    for (const payment of await this.deps.payments.listRefundsInFlight(cutoff)) {
+      if (await this.reconcileRefund(payment).catch(() => false)) applied += 1;
+    }
     return applied;
+  }
+
+  /** Poll one refund disbursement; returns true when it reached a final state. */
+  private async reconcileRefund(payment: Payment): Promise<boolean> {
+    if (payment.refundReference === null || payment.refundState !== 'PROCESSING') return false;
+    let status: QueryStatusResult;
+    try {
+      status = await this.deps.mobileMoney.queryRefundStatus(payment.refundReference, {
+        phoneE164: payment.payerPhone,
+      });
+    } catch {
+      await this.deps.payments.update(payment.id, { lastStatusCheckAt: this.now() }).catch(() => null);
+      return false;
+    }
+    if (status.status === 'PENDING') {
+      await this.deps.payments.update(payment.id, { lastStatusCheckAt: this.now() });
+      return false;
+    }
+    if (status.status === 'COMPLETED') {
+      return (await this.completeRefund(payment, payment.refundReference, null, false)) !== null;
+    }
+    const failed = await this.deps.payments.transitionRefundState(payment.id, ['PROCESSING'], {
+      refundState: 'FAILED',
+      refundPending: true,
+    });
+    if (failed) {
+      await this.audit(null, 'PAYMENT_REFUND_FAILED', payment.id, {
+        source: 'reconciliation',
+        reason: status.failureReason ?? null,
+      });
+    }
+    return failed !== null;
   }
 
   // ── Refunds ────────────────────────────────────────────────────────────────
@@ -566,10 +728,19 @@ export class PaymentService implements PaymentPort {
   }
 
   /**
-   * Full refund of what was actually received. The refund is CLAIMED with a
-   * guarded transition first (refundState null/FAILED → PROCESSING), so two
-   * triggers — a cancel racing a late success, an admin double-click — can
-   * never send the money back twice.
+   * Full refund of what was actually received, paid back to the payer's
+   * wallet as an AzamPay disbursement (AzamPay has no refund API). The refund
+   * is CLAIMED with a guarded transition first (refundState null/FAILED →
+   * PROCESSING), so two triggers — a cancel racing a late success, an admin
+   * double-click — can never send the money back twice. Each attempt gets its
+   * own reference `r<attempt>-<paymentId>` (≤ 30 chars, AzamPay limit).
+   *
+   *  - provider accepted (PENDING)   → PROCESSING, polled by reconciliation
+   *  - OUTCOME_UNKNOWN (timeout/5xx) → stays PROCESSING, never retried blind;
+   *                                     after 24h it shows on the admin list
+   *  - refused / operator unsupported (M-Pesa, Halopesa) / not configured
+   *                                   → FAILED + refundPending: admin retries
+   *                                     or completes it manually
    */
   private async refundPayment(
     payment: Payment,
@@ -577,36 +748,49 @@ export class PaymentService implements PaymentPort {
     actorUserId: string | null,
   ): Promise<Payment> {
     const amountTzs = payment.receivedAmountTzs ?? payment.amountTzs;
+    const attempt = payment.refundAttempts + 1;
     const claimed = await this.deps.payments.transitionRefundState(payment.id, [null, 'FAILED'], {
       refundState: 'PROCESSING',
       refundAmountTzs: amountTzs,
       refundReason: reason,
       refundPending: false,
+      refundReference: null,
+      refundAttempts: attempt,
     });
     if (!claimed) return payment; // already refunding / refunded / not COMPLETED
 
+    const patient = await this.deps.patients.findByIdWithUser(payment.patientId);
     try {
       const result = await this.deps.mobileMoney.refund({
         providerReference: payment.aggregatorTransactionId ?? payment.idempotencyKey,
         amountTzs,
         reason,
+        payerPhone: payment.payerPhone,
+        payerName: patient?.user.fullName ?? null,
+        reference: `r${attempt}-${payment.id}`,
       });
       if (result.status === 'FAILED') throw new MobileMoneyError('PROVIDER_UNAVAILABLE', 'refund rejected');
       if (result.status === 'PENDING') {
         const pending = await this.deps.payments.update(payment.id, {
           refundReference: result.refundReference,
         });
-        await this.audit(actorUserId, 'PAYMENT_REFUND_REQUESTED', payment.id, { reason, amountTzs });
+        await this.audit(actorUserId, 'PAYMENT_REFUND_REQUESTED', payment.id, { reason, amountTzs, attempt });
         return pending;
       }
       return (await this.completeRefund(claimed, result.refundReference, actorUserId, false)) ?? claimed;
     } catch (error) {
+      if (error instanceof MobileMoneyError && error.code === 'OUTCOME_UNKNOWN') {
+        // The money may be on its way back: never mark failed, never resend blind.
+        await this.audit(actorUserId, 'PAYMENT_REFUND_OUTCOME_UNKNOWN', payment.id, { reason, attempt });
+        return claimed;
+      }
       const failed = await this.deps.payments.update(payment.id, {
         refundPending: true,
         refundState: 'FAILED',
       });
       await this.audit(actorUserId, 'PAYMENT_REFUND_FAILED', payment.id, {
         reason,
+        attempt,
         code: error instanceof MobileMoneyError ? error.code : 'UNKNOWN',
       });
       return failed;
@@ -787,7 +971,9 @@ export class PaymentService implements PaymentPort {
   }
 
   async refundsPending(): Promise<{ items: PaymentView[] }> {
-    const items = await this.deps.payments.listRefundPending();
+    const items = await this.deps.payments.listRefundPending(
+      new Date(this.now().getTime() - ABANDONED_ALERT_AFTER_MS),
+    );
     return { items: items.map((payment) => this.toView(payment)) };
   }
 

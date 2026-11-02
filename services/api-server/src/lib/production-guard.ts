@@ -40,12 +40,18 @@ export function findProductionAdapterOffenders(env: Env): string[] {
   if (missing(env.AWS_ACCESS_KEY_ID)) offenders.push('AWS_ACCESS_KEY_ID');
   if (missing(env.AWS_SECRET_ACCESS_KEY)) offenders.push('AWS_SECRET_ACCESS_KEY');
 
-  // Payments — AzamPay collection/refund. Missing creds ⇒ FakePayments in prod.
+  // Payments — AzamPay collections. Missing creds ⇒ FakePayments in prod.
   if (missing(env.AZAMPAY_CLIENT_ID)) offenders.push('AZAMPAY_CLIENT_ID');
   if (missing(env.AZAMPAY_CLIENT_SECRET)) offenders.push('AZAMPAY_CLIENT_SECRET');
   if (missing(env.AZAMPAY_APP_NAME)) offenders.push('AZAMPAY_APP_NAME');
-  // Webhook signature secret — without it every provider webhook 401s.
-  if (missing(env.AZAMPAY_WEBHOOK_SECRET)) offenders.push('AZAMPAY_WEBHOOK_SECRET');
+  // Sandbox hosts in production would take real bookings against fake money.
+  if (env.AZAMPAY_ENV !== 'production') offenders.push('AZAMPAY_ENV');
+  // Disbursements (doctor payouts + refunds). Missing ⇒ every refund and
+  // payout falls to the manual list.
+  if (missing(env.AZAMPAY_CHECKSUM_PUBLIC_KEY)) offenders.push('AZAMPAY_CHECKSUM_PUBLIC_KEY');
+  if (missing(env.AZAMPAY_DISBURSE_SOURCE_ACCOUNT)) offenders.push('AZAMPAY_DISBURSE_SOURCE_ACCOUNT');
+  if (missing(env.AZAMPAY_DISBURSE_SOURCE_NAME)) offenders.push('AZAMPAY_DISBURSE_SOURCE_NAME');
+  if (missing(env.AZAMPAY_DISBURSE_SOURCE_BANK)) offenders.push('AZAMPAY_DISBURSE_SOURCE_BANK');
 
   // SMS gateway — OTPs, refund notices, doctor-cancel alerts.
   if (missing(env.SMS_API_KEY)) offenders.push('SMS_API_KEY');

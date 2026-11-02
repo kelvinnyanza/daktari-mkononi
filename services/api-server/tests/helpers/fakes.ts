@@ -993,7 +993,9 @@ export function makeFakeDeps(): FakeDeps {
         ),
       create: (input) => {
         const payment: Payment = {
-          id: randomUUID(),
+          // CUID-length (25) like Prisma's @default(cuid()) — references built
+          // from payment ids must fit AzamPay's 30-char limit.
+          id: `c${randomUUID().replace(/-/g, '').slice(0, 24)}`,
           patientId: input.patientId,
           appointmentId: input.appointmentId,
           deliveryId: null,
@@ -1022,6 +1024,7 @@ export function makeFakeDeps(): FakeDeps {
           refundPending: false,
           refundedAt: null,
           refundState: null,
+          refundAttempts: 0,
           receivedAmountTzs: null,
           reviewReason: null,
           reviewNote: null,
@@ -1049,6 +1052,20 @@ export function makeFakeDeps(): FakeDeps {
         paymentRows.set(id, next);
         return Promise.resolve(next);
       },
+      findByRefundReference: (refundReference) =>
+        Promise.resolve(
+          [...paymentRows.values()].find((row) => row.refundReference === refundReference) ?? null,
+        ),
+      listRefundsInFlight: (cutoff) =>
+        Promise.resolve(
+          [...paymentRows.values()].filter(
+            (row) =>
+              row.status === 'COMPLETED' &&
+              row.refundState === 'PROCESSING' &&
+              row.refundReference !== null &&
+              row.updatedAt < cutoff,
+          ),
+        ),
       findByIdempotencyKeyPrefix: (prefix) =>
         Promise.resolve(
           [...paymentRows.values()].find((row) => row.idempotencyKey.startsWith(prefix)) ?? null,
@@ -1111,8 +1128,14 @@ export function makeFakeDeps(): FakeDeps {
           total: all.length,
         });
       },
-      listRefundPending: () =>
-        Promise.resolve([...paymentRows.values()].filter((row) => row.refundPending)),
+      listRefundPending: (staleBefore) =>
+        Promise.resolve(
+          [...paymentRows.values()].filter(
+            (row) =>
+              row.refundPending ||
+              (row.status === 'COMPLETED' && row.refundState === 'PROCESSING' && row.updatedAt < staleBefore),
+          ),
+        ),
     },
 
     doctorPayments: {

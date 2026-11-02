@@ -795,7 +795,6 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
   });
 
   it('money flow: book → pay → signed webhook → CONFIRMED → consultation COMPLETED → exact integer accrual', async () => {
-    const { createHmac } = await import('node:crypto');
     const { DEFAULT_FEE_RATES, calculateFees } = await import('@daktari/payments');
     const FEE = 25_001; // odd amount so the half-up rounding is visible
 
@@ -887,15 +886,14 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
     );
     expect(collections).toHaveLength(1); // idempotent: booking initiated, /pay reused
 
-    // Signed provider webhook completes the payment.
+    // AzamPay-shaped, RSA-signed callback completes the payment.
     const body = JSON.stringify(
       fakePayments.webhookBodyFor(collections[0]!.providerReference, 'success'),
     );
-    const signature = createHmac('sha256', 'whsec-test-secret-value').update(body, 'utf8').digest('hex');
     const webhook = await app.inject({
       method: 'POST',
       url: '/webhooks/azampay',
-      headers: { 'content-type': 'application/json', 'x-azampay-signature': signature },
+      headers: { 'content-type': 'application/json' }, // RSA signature is inside the body
       payload: body,
     });
     expect(webhook.statusCode).toBe(200);

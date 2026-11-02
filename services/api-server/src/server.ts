@@ -84,6 +84,23 @@ function createMobileMoney(env: Env): MobileMoneyPort {
       ...(env.AZAMPAY_CHECKOUT_BASE_URL !== undefined
         ? { checkoutBaseUrl: env.AZAMPAY_CHECKOUT_BASE_URL }
         : {}),
+      ...(env.AZAMPAY_DISBURSEMENT_BASE_URL !== undefined
+        ? { disbursementBaseUrl: env.AZAMPAY_DISBURSEMENT_BASE_URL }
+        : {}),
+      ...(env.AZAMPAY_CHECKSUM_PUBLIC_KEY !== undefined
+        ? { checksumPublicKeyPem: env.AZAMPAY_CHECKSUM_PUBLIC_KEY }
+        : {}),
+      ...(env.AZAMPAY_DISBURSE_SOURCE_ACCOUNT !== undefined &&
+      env.AZAMPAY_DISBURSE_SOURCE_NAME !== undefined &&
+      env.AZAMPAY_DISBURSE_SOURCE_BANK !== undefined
+        ? {
+            disbursementSource: {
+              accountNumber: env.AZAMPAY_DISBURSE_SOURCE_ACCOUNT,
+              fullName: env.AZAMPAY_DISBURSE_SOURCE_NAME,
+              bankName: env.AZAMPAY_DISBURSE_SOURCE_BANK,
+            },
+          }
+        : {}),
     });
   }
   return new FakePayments(); // dev without aggregator credentials

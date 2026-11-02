@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FEE_RATES, calculateFees } from '@daktari/payments';
 import { applyTestEnv } from './helpers/env.js';
@@ -79,6 +78,32 @@ async function bookedMobileMoney(feeTzs = 25_000) {
   return { doctor, doctorUser, user, patient, booked, payment };
 }
 
+/**
+ * A validly SIGNED AzamPay checkout callback (old-style arguments kept so the
+ * scenarios read as before): utilityref = our key, externalreference =
+ * AzamPay's id. The fake's status API still says PENDING unless a test sets
+ * it, so the signed callback is what gets applied.
+ */
+function signedCallback(input: {
+  transactionId: string;
+  externalReference: string;
+  status: 'success' | 'failure';
+  amount?: number;
+  message?: string;
+}) {
+  return payments.handleCheckoutCallback(
+    {
+      utilityref: input.externalReference,
+      externalreference: input.transactionId,
+      transactionstatus: input.status,
+      operator: 'Mpesa',
+      ...(input.amount !== undefined ? { amount: String(input.amount) } : {}),
+      ...(input.message !== undefined ? { message: input.message } : {}),
+    },
+    'valid',
+  );
+}
+
 describe('initiation', () => {
   it('booking creates ONE Payment row with the integer fee split and starts collection', async () => {
     const { payment } = await bookedMobileMoney(25_001);
@@ -138,7 +163,7 @@ describe('webhook processing (service level)', () => {
     const { booked, payment } = await bookedMobileMoney();
     const reference = payment.idempotencyKey;
 
-    const first = await payments.handleWebhook({
+    const first = await signedCallback({
       transactionId: deps.mobileMoney.collections[0]!.providerReference,
       externalReference: reference,
       status: 'success',
@@ -149,7 +174,7 @@ describe('webhook processing (service level)', () => {
     expect(deps.state.appointments.get(booked.id)!.expiresAt).toBeNull();
 
     // Replay of the terminal event: no second transition, no second audit.
-    const replay = await payments.handleWebhook({
+    const replay = await signedCallback({
       transactionId: deps.mobileMoney.collections[0]!.providerReference,
       externalReference: reference,
       status: 'success',
@@ -169,7 +194,7 @@ describe('webhook processing (service level)', () => {
 
   it('failure → payment FAILED with reason, appointment stays PENDING_PAYMENT', async () => {
     const { booked, payment } = await bookedMobileMoney();
-    const result = await payments.handleWebhook({
+    const result = await signedCallback({
       transactionId: deps.mobileMoney.collections[0]!.providerReference,
       externalReference: payment.idempotencyKey,
       status: 'failure',
@@ -183,7 +208,7 @@ describe('webhook processing (service level)', () => {
   });
 
   it('unknown reference → audited, reported unknown (route answers 200)', async () => {
-    const result = await payments.handleWebhook({
+    const result = await signedCallback({
       transactionId: 'never-seen',
       externalReference: 'ghost:1',
       status: 'success',
@@ -235,7 +260,7 @@ describe('reconciliation (shared code path with the webhook)', () => {
 describe('refunds', () => {
   async function paidAppointment() {
     const context = await bookedMobileMoney();
-    await payments.handleWebhook({
+    await signedCallback({
       transactionId: deps.mobileMoney.collections[0]!.providerReference,
       externalReference: context.payment.idempotencyKey,
       status: 'success',
@@ -291,7 +316,7 @@ describe('refunds', () => {
 describe('doctor earnings accrual', () => {
   it('accrues exactly doctorAmountTzs once per consultation; replays are no-ops', async () => {
     const { doctor, booked, payment } = await bookedMobileMoney(25_001);
-    await payments.handleWebhook({
+    await signedCallback({
       transactionId: deps.mobileMoney.collections[0]!.providerReference,
       externalReference: payment.idempotencyKey,
       status: 'success',
@@ -332,125 +357,140 @@ describe('doctor earnings accrual', () => {
   });
 });
 
-describe('webhook route (signature + idempotency over HTTP)', () => {
-  const secret = 'whsec-test-secret-value'; // matches applyTestEnv
-  const sign = (raw: string): string => createHmac('sha256', secret).update(raw, 'utf8').digest('hex');
-
+describe('webhook route (AzamPay RSA signature + status confirmation over HTTP)', () => {
   async function appWithPaidSetup() {
     const { buildApp } = await import('../src/app.js');
     const app = await buildApp({ deps, redis: null, logger: false, now: () => clock.now });
     await app.ready();
     const context = await bookedMobileMoney();
-    return { app, ...context };
+    return { app, ...context, reference: deps.mobileMoney.collections[0]!.providerReference };
   }
+  const post = (app: Awaited<ReturnType<typeof appWithPaidSetup>>['app'], payload: string) =>
+    app.inject({ method: 'POST', url: '/webhooks/azampay', headers: { 'content-type': 'application/json' }, payload });
 
-  it('bad signature → 401 + WEBHOOK_SIGNATURE_INVALID audit, no state change', async () => {
-    const { app, payment } = await appWithPaidSetup();
-    const body = JSON.stringify(
-      deps.mobileMoney.webhookBodyFor(deps.mobileMoney.collections[0]!.providerReference, 'success'),
-    );
-    const response = await app.inject({
-      method: 'POST',
-      url: '/webhooks/azampay',
-      headers: { 'content-type': 'application/json', 'x-azampay-signature': sign(`${body}tampered`) },
-      payload: body,
-    });
+  it('invalid signature (status flipped after signing) → 401 + WEBHOOK_SIGNATURE_INVALID audit, no state change', async () => {
+    const { app, payment, reference } = await appWithPaidSetup();
+    const signedFailure = deps.mobileMoney.webhookBodyFor(reference, 'failure');
+    const forged = JSON.stringify({ ...signedFailure, transactionstatus: 'success' });
+    const response = await post(app, forged);
     expect(response.statusCode).toBe(401);
     expect(deps.state.paymentRows.get(payment.id)!.status).toBe('PROCESSING'); // untouched
-    expect(
-      deps.state.auditEntries.some((entry) => entry.action === 'WEBHOOK_SIGNATURE_INVALID'),
-    ).toBe(true);
+    expect(deps.state.auditEntries.some((entry) => entry.action === 'WEBHOOK_SIGNATURE_INVALID')).toBe(true);
     await app.close();
   });
 
-  it('valid signature over the exact raw string succeeds; a single altered byte after signing → 401', async () => {
-    const { app, booked } = await appWithPaidSetup();
-    const body = JSON.stringify(
-      deps.mobileMoney.webhookBodyFor(deps.mobileMoney.collections[0]!.providerReference, 'success'),
-    );
-    const signature = sign(body); // signed over the EXACT raw string
-
-    // One byte of the body altered AFTER signing — must fail closed.
-    const tampered = `${body.slice(0, -2)}X${body.slice(-1)}`;
-    const rejected = await app.inject({
-      method: 'POST',
-      url: '/webhooks/azampay',
-      headers: { 'content-type': 'application/json', 'x-azampay-signature': signature },
-      payload: tampered,
-    });
-    expect(rejected.statusCode).toBe(401);
-    expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT'); // untouched
-
-    // The untampered body with the same signature succeeds — proving the
-    // handler verified the exact raw bytes that arrived, via the
-    // route-scoped parseAs:'string' parser (production path, not a bypass).
-    const accepted = await app.inject({
-      method: 'POST',
-      url: '/webhooks/azampay',
-      headers: { 'content-type': 'application/json', 'x-azampay-signature': signature },
-      payload: body,
-    });
-    expect(accepted.statusCode).toBe(200);
-    expect(accepted.json().outcome).toBe('applied');
-    expect(deps.state.appointments.get(booked.id)!.status).toBe('CONFIRMED');
-    await app.close();
-  });
-
-  it('malformed and schema-invalid bodies → 400 (after a valid signature)', async () => {
-    const { app } = await appWithPaidSetup();
-    const malformed = 'not-json{';
-    const bad = await app.inject({
-      method: 'POST',
-      url: '/webhooks/azampay',
-      headers: { 'content-type': 'application/json', 'x-azampay-signature': sign(malformed) },
-      payload: malformed,
-    });
-    expect(bad.statusCode).toBe(400);
-
-    const wrongShape = JSON.stringify({ hello: 'world' });
-    const invalid = await app.inject({
-      method: 'POST',
-      url: '/webhooks/azampay',
-      headers: { 'content-type': 'application/json', 'x-azampay-signature': sign(wrongShape) },
-      payload: wrongShape,
-    });
-    expect(invalid.statusCode).toBe(400);
-    await app.close();
-  });
-
-  it('success → CONFIRMED; duplicate delivery → 200 no-op; unknown reference → 200 audited', async () => {
-    const { app, booked } = await appWithPaidSetup();
-    const body = JSON.stringify(
-      deps.mobileMoney.webhookBodyFor(deps.mobileMoney.collections[0]!.providerReference, 'success'),
-    );
-    const headers = { 'content-type': 'application/json', 'x-azampay-signature': sign(body) };
-
-    const first = await app.inject({ method: 'POST', url: '/webhooks/azampay', headers, payload: body });
+  it('validly signed success → CONFIRMED; duplicate delivery → 200 no-op; credentials in the body are never stored', async () => {
+    const { app, booked, reference } = await appWithPaidSetup();
+    const body = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success'));
+    const first = await post(app, body);
     expect(first.statusCode).toBe(200);
     expect(first.json().outcome).toBe('applied');
     expect(deps.state.appointments.get(booked.id)!.status).toBe('CONFIRMED');
+    expect(deps.mobileMoney.statusQueries).toContain(reference); // confirmed with AzamPay first
 
-    // Duplicate delivery of the same terminal event.
-    const duplicate = await app.inject({ method: 'POST', url: '/webhooks/azampay', headers, payload: body });
-    expect(duplicate.statusCode).toBe(200);
+    const duplicate = await post(app, body);
     expect(duplicate.json().outcome).toBe('noop');
+    expect(JSON.stringify(deps.state.auditEntries)).not.toContain('merchant_password');
+    await app.close();
+  });
 
-    // Unknown reference: 200, never 404 — don't teach the provider to retry.
-    const unknown = JSON.stringify({
-      transactionId: 'ghost-tx',
-      externalReference: 'ghost:1',
-      status: 'success',
-      amount: 1000,
-      currency: 'TZS',
+  it('UNSIGNED callback is never applied on its own: deferred while the status API says pending', async () => {
+    const { app, booked, reference } = await appWithPaidSetup();
+    const unsigned = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success', { signature: null }));
+    const response = await post(app, unsigned);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().outcome).toBe('deferred');
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
+    await app.close();
+  });
+
+  it('UNSIGNED callback + status API says COMPLETED → applied from the STATUS answer', async () => {
+    const { app, booked, reference } = await appWithPaidSetup();
+    deps.mobileMoney.setProviderStatus(reference, 'COMPLETED', undefined, { amountTzs: 25_000 });
+    const unsigned = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success', { signature: null }));
+    expect((await post(app, unsigned)).json().outcome).toBe('applied');
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CONFIRMED');
+    await app.close();
+  });
+
+  it('signed callback that the status API contradicts → nothing applied, STATUS_CONFLICT for an admin', async () => {
+    const { app, booked, payment, reference } = await appWithPaidSetup();
+    deps.mobileMoney.setProviderStatus(reference, 'FAILED', 'declined');
+    const body = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success'));
+    expect((await post(app, body)).json().outcome).toBe('conflict');
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.status).toBe('PROCESSING');
+    expect(row.reviewReason).toBe('STATUS_CONFLICT');
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
+    await app.close();
+  });
+
+  it('refs-only signature (the docs’ other wording) is treated as unsigned; unverifiable key too', async () => {
+    const { app, booked, payment, reference } = await appWithPaidSetup();
+    const refsOnly = deps.mobileMoney.sign(`${payment.idempotencyKey}${reference}`);
+    const body = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success', { signature: refsOnly }));
+    expect((await post(app, body)).json().outcome).toBe('deferred');
+    deps.mobileMoney.publicKeyUnavailable = true;
+    const signed = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success'));
+    expect((await post(app, signed)).json().outcome).toBe('deferred');
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
+    await app.close();
+  });
+
+  it('callback amount ≠ owed → AMOUNT_MISMATCH, not confirmed', async () => {
+    const { app, booked, payment, reference } = await appWithPaidSetup();
+    const body = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success', { amount: '2500' }));
+    await post(app, body);
+    expect(deps.state.paymentRows.get(payment.id)!.reviewReason).toBe('AMOUNT_MISMATCH');
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
+    await app.close();
+  });
+
+  it('malformed and schema-invalid bodies → 400; unknown reference → 200 audited', async () => {
+    const { app } = await appWithPaidSetup();
+    expect((await post(app, '{not json')).statusCode).toBe(400);
+    expect((await post(app, JSON.stringify({ hello: 'world' }))).statusCode).toBe(400);
+    const ghost = JSON.stringify({
+      utilityref: 'ghost-appointment:1',
+      externalreference: 'ghost-pg',
+      transactionstatus: 'success',
+      operator: 'Tigo',
+      amount: '1000',
     });
-    const unknownResponse = await app.inject({
-      method: 'POST',
-      url: '/webhooks/azampay',
-      headers: { 'content-type': 'application/json', 'x-azampay-signature': sign(unknown) },
-      payload: unknown,
-    });
-    expect(unknownResponse.statusCode).toBe(200);
-    expect(unknownResponse.json().outcome).toBe('unknown-reference');
+    const unknown = await post(app, ghost);
+    expect(unknown.statusCode).toBe(200);
+    expect(unknown.json().outcome).toBe('unknown-reference');
+    expect(deps.state.auditEntries.some((entry) => entry.action === 'WEBHOOK_UNKNOWN_REFERENCE')).toBe(true);
+    await app.close();
+  });
+
+  it('a superseded attempt reporting success is flagged STRAY_ATTEMPT on the current payment', async () => {
+    const { app, user, booked, payment, reference } = await appWithPaidSetup();
+    const attempt1 = deps.mobileMoney.webhookBodyFor(reference, 'success'); // built while attempt 1 is current
+    await deps.paymentsRepo.transitionStatus(payment.id, ['PROCESSING'], { status: 'FAILED', failureReason: 'x' });
+    await payments.payForAppointment(user.id, booked.id); // attempt 2 → key :2
+    const response = await post(app, JSON.stringify(attempt1));
+    expect(response.json().outcome).toBe('stray-attempt');
+    expect(deps.state.paymentRows.get(payment.id)!.reviewReason).toBe('STRAY_ATTEMPT');
+    await app.close();
+  });
+
+  it('disbursement callbacks are never trusted: they only trigger a refund status check', async () => {
+    const { app, payment, reference } = await appWithPaidSetup();
+    await post(app, JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success')));
+    deps.mobileMoney.nextRefund('pending');
+    await payments.refundIfPaid(payment.appointmentId!, 'complaint');
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.refundState).toBe('PROCESSING');
+
+    // The callback body CLAIMS success; the status API still says pending → nothing changes.
+    const claim = JSON.stringify({ pgReferenceId: row.refundReference, status: 'success', amount: '25000' });
+    expect((await post(app, claim)).json().outcome).toBe('pending');
+    expect(deps.state.paymentRows.get(payment.id)!.status).toBe('COMPLETED');
+
+    deps.mobileMoney.setProviderStatus(row.refundReference!, 'COMPLETED');
+    expect((await post(app, claim)).json().outcome).toBe('applied');
+    expect(deps.state.paymentRows.get(payment.id)!.status).toBe('REFUNDED');
     await app.close();
   });
 });
@@ -469,7 +509,7 @@ describe('late / orphan payments (Phase 13a)', () => {
     expect(deps.state.paymentRows.get(payment.id)!.abandonedAt).not.toBeNull();
     expect(deps.state.paymentRows.get(payment.id)!.status).toBe('PROCESSING'); // never closed blind
 
-    const result = await payments.handleWebhook(successFor(payment));
+    const result = await signedCallback(successFor(payment));
     expect(result.outcome).toBe('applied');
 
     expect(deps.state.appointments.get(booked.id)!.status).toBe('CANCELLED');
@@ -493,7 +533,7 @@ describe('late / orphan payments (Phase 13a)', () => {
   it('success after expiresAt but BEFORE the sweep ran still never confirms', async () => {
     const { booked, payment } = await bookedMobileMoney();
     clock.now = new Date(NOW.getTime() + 31 * 60_000); // window over, sweep not yet run
-    await payments.handleWebhook(successFor(payment));
+    await signedCallback(successFor(payment));
     expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
     const row = deps.state.paymentRows.get(payment.id)!;
     expect(row.reviewNote).toBe('APPOINTMENT_EXPIRED');
@@ -548,7 +588,7 @@ describe('late / orphan payments (Phase 13a)', () => {
 
   it('the refund is claimed once: concurrent triggers send money back only once', async () => {
     const { payment } = await bookedMobileMoney();
-    await payments.handleWebhook(successFor(payment));
+    await signedCallback(successFor(payment));
     await Promise.all([
       payments.refundIfPaid(payment.appointmentId!, 'a'),
       payments.refundIfPaid(payment.appointmentId!, 'b'),
@@ -559,7 +599,7 @@ describe('late / orphan payments (Phase 13a)', () => {
   it('admin resolves a review item with a note (audited); resolving twice is refused', async () => {
     const { payment } = await bookedMobileMoney();
     clock.now = new Date(NOW.getTime() + 31 * 60_000);
-    await payments.handleWebhook(successFor(payment));
+    await signedCallback(successFor(payment));
     const admin = deps.seedUser({ role: 'PLATFORM_ADMIN' });
     const view = await payments.resolveReview(admin.id, payment.id, 'Refund confirmed with patient');
     expect(view.reviewResolvedAt).not.toBeNull();
@@ -571,7 +611,7 @@ describe('late / orphan payments (Phase 13a)', () => {
 describe('amount check + unknown outcomes (Phase 13a)', () => {
   it('provider-reported amount ≠ owed → COMPLETED but NOT confirmed, flagged AMOUNT_MISMATCH, no auto-refund', async () => {
     const { booked, payment } = await bookedMobileMoney(15_000);
-    await payments.handleWebhook({
+    await signedCallback({
       transactionId: deps.mobileMoney.collections[0]!.providerReference,
       externalReference: payment.idempotencyKey,
       status: 'success',
@@ -588,7 +628,7 @@ describe('amount check + unknown outcomes (Phase 13a)', () => {
 
   it('matching amount confirms as before', async () => {
     const { booked, payment } = await bookedMobileMoney(15_000);
-    await payments.handleWebhook({
+    await signedCallback({
       transactionId: deps.mobileMoney.collections[0]!.providerReference,
       externalReference: payment.idempotencyKey,
       status: 'success',
@@ -615,7 +655,7 @@ describe('amount check + unknown outcomes (Phase 13a)', () => {
     expect(deps.state.paymentRows.get(payment.id)!.status).toBe('PROCESSING');
 
     // The callback is matched on OUR reference and settles it normally.
-    const result = await payments.handleWebhook({
+    const result = await signedCallback({
       transactionId: 'azam-late-ref',
       externalReference: payment.idempotencyKey,
       status: 'success',
@@ -715,5 +755,68 @@ describe('fees & VAT settings (Phase 13a)', () => {
       }),
       'FEE_SETTINGS_BACKDATED',
     );
+  });
+});
+
+describe('refunds as disbursements (Phase 13a — AzamPay has no refund API)', () => {
+  async function paid() {
+    const context = await bookedMobileMoney(15_000);
+    await signedCallback({
+      transactionId: deps.mobileMoney.collections[0]!.providerReference,
+      externalReference: context.payment.idempotencyKey,
+      status: 'success',
+    });
+    return context;
+  }
+
+  it('sends payer wallet, name and a ≤30-char per-attempt reference', async () => {
+    const { payment, user } = await paid();
+    await payments.refundIfPaid(payment.appointmentId!, 'doctor-cancel');
+    const sent = deps.mobileMoney.refunds[0]!;
+    expect(sent).toMatchObject({ payerPhone: user.phone, amountTzs: 15_000, reference: `r1-${payment.id}` });
+    expect(sent.reference.length).toBeLessThanOrEqual(30);
+  });
+
+  it('operator the API cannot pay (M-Pesa) → refund FAILED + refundPending for manual handling', async () => {
+    const { payment } = await paid();
+    deps.mobileMoney.nextRefundThrows('UNSUPPORTED_DESTINATION');
+    await payments.refundIfPaid(payment.appointmentId!, 'doctor-cancel');
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row).toMatchObject({ status: 'COMPLETED', refundState: 'FAILED', refundPending: true });
+    expect((await payments.refundsPending()).items.map((item) => item.id)).toContain(payment.id);
+  });
+
+  it('refund OUTCOME_UNKNOWN → stays PROCESSING (never failed, never resent); listed for admins after 24h', async () => {
+    const { payment } = await paid();
+    deps.mobileMoney.nextRefundThrows('OUTCOME_UNKNOWN');
+    await payments.refundIfPaid(payment.appointmentId!, 'doctor-cancel');
+    expect(deps.state.paymentRows.get(payment.id)!).toMatchObject({ refundState: 'PROCESSING', refundPending: false });
+    await payments.refundIfPaid(payment.appointmentId!, 'again');
+    expect(deps.mobileMoney.refunds).toHaveLength(0); // the guarded claim refuses a blind resend
+    expect((await payments.refundsPending()).items).toHaveLength(0);
+    clock.now = new Date(Date.now() + 25 * 60 * 60_000);
+    expect((await payments.refundsPending()).items.map((item) => item.id)).toContain(payment.id);
+  });
+
+  it('pending refund disbursement is completed by reconciliation (REFUNDED + SMS)', async () => {
+    const { payment } = await paid();
+    deps.mobileMoney.nextRefund('pending');
+    await payments.refundIfPaid(payment.appointmentId!, 'doctor-cancel');
+    const row = deps.state.paymentRows.get(payment.id)!;
+    deps.mobileMoney.setProviderStatus(row.refundReference!, 'COMPLETED');
+    deps.state.paymentRows.set(payment.id, { ...row, updatedAt: new Date(NOW.getTime() - 120_000) });
+    await payments.reconcilePendingPayments();
+    expect(deps.state.paymentRows.get(payment.id)!).toMatchObject({ status: 'REFUNDED', refundState: 'COMPLETED' });
+    expect(deps.sms.sent.some((entry) => entry.body.includes('yamerudishwa'))).toBe(true);
+  });
+
+  it('provider fee in a status answer is recorded on the payment (source PROVIDER)', async () => {
+    const { payment } = await bookedMobileMoney(15_000);
+    const reference = deps.mobileMoney.collections[0]!.providerReference;
+    deps.mobileMoney.setProviderStatus(reference, 'COMPLETED', undefined, { amountTzs: 15_000, providerFeeTzs: 300 });
+    const row = deps.state.paymentRows.get(payment.id)!;
+    deps.state.paymentRows.set(payment.id, { ...row, updatedAt: new Date(NOW.getTime() - 120_000) });
+    await payments.reconcilePendingPayments();
+    expect(deps.state.paymentRows.get(payment.id)!).toMatchObject({ providerFeeTzs: 300, providerFeeSource: 'PROVIDER' });
   });
 });

@@ -1,4 +1,4 @@
-﻿import { createHmac } from 'node:crypto';
+﻿import { constants, createHash, generateKeyPairSync, privateDecrypt, sign as rsaSign } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FEE_RATES,
@@ -8,7 +8,7 @@ import {
   percentToBps,
 } from '../src/money.js';
 import { MNO_PREFIXES, deriveMno } from '../src/mno-prefixes.js';
-import { AzamPayProvider, verifyAzamPayWebhookSignature } from '../src/azampay.js';
+import { AzamPayProvider, parseAzamPayAmount } from '../src/azampay.js';
 import { FakePayments } from '../src/fake.js';
 
 describe('calculateFees (money invariants, Phase 13a)', () => {
@@ -21,6 +21,7 @@ describe('calculateFees (money invariants, Phase 13a)', () => {
       seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
       return seed % (max + 1);
     };
+    const violations: unknown[] = [];
     for (let i = 0; i < 20_000; i += 1) {
       const fee = i % 10 === 0 ? rand(20) : rand(5_000_000); // tiny fees hit rounding edges
       const rates = {
@@ -30,15 +31,18 @@ describe('calculateFees (money invariants, Phase 13a)', () => {
         vatMode: MODES[rand(1)]!,
       };
       const parts = calculateFees(fee, rates);
-      expect(parts.platformCommissionTzs + parts.vatTzs + parts.doctorAmountTzs).toBe(fee);
-      for (const value of [parts.platformCommissionTzs, parts.vatTzs, parts.doctorAmountTzs]) {
-        expect(Number.isSafeInteger(value)).toBe(true);
-        expect(value).toBeGreaterThanOrEqual(0);
-      }
-      expect(parts.deductedFromDoctorTzs).toBe(fee - parts.doctorAmountTzs);
-      if (!rates.vatEnabled) expect(parts.vatTzs).toBe(0);
+      // Plain checks per case (expect() ×20,000 is slow under parallel CI load);
+      // the first violation is reported with its inputs.
+      const values = [parts.platformCommissionTzs, parts.vatTzs, parts.doctorAmountTzs];
+      const ok =
+        values[0]! + values[1]! + values[2]! === fee &&
+        values.every((value) => Number.isSafeInteger(value) && value >= 0) &&
+        parts.deductedFromDoctorTzs === fee - parts.doctorAmountTzs &&
+        (rates.vatEnabled || parts.vatTzs === 0);
+      if (!ok) violations.push({ fee, rates, parts });
     }
-  });
+    expect(violations.slice(0, 3)).toEqual([]);
+  }, 30_000);
 
   it('worked examples (20% commission, 18% VAT on top — the defaults)', () => {
     expect(DEFAULT_FEE_RATES).toEqual({
@@ -207,8 +211,15 @@ describe('AzamPayProvider', () => {
     expect(tokenCalls).toHaveLength(1); // expiry-aware cache: one auth for two checkouts
 
     const checkout = calls.find((call) => call.url.includes('mno/checkout'))!;
-    expect((checkout.body as { provider: string }).provider).toBe('Tigo');
-    expect((checkout.body as { amount: string }).amount).toBe('20000'); // whole TZS, stringified
+    expect(checkout.url).toBe('https://sandbox.azampay.co.tz/azampay/mno/checkout');
+    // Spec CheckoutRequest: amount is a number (whole TZS), externalId is our reference.
+    expect(checkout.body).toMatchObject({
+      accountNumber: '255652345678',
+      amount: 20_000,
+      currency: 'TZS',
+      externalId: 'appt-1:1',
+      provider: 'Tigo',
+    });
   });
 
   it('maps an insufficient-funds hint to the typed error', async () => {
@@ -237,22 +248,6 @@ describe('AzamPayProvider', () => {
   });
 });
 
-describe('webhook signature helper', () => {
-  const secret = 'whsec-super-secret-value';
-  const body = JSON.stringify({ transactionId: 't1', status: 'success' });
-  const sign = (payload: string, key: string): string =>
-    createHmac('sha256', key).update(payload, 'utf8').digest('hex');
-
-  it('accepts a valid signature and rejects everything else', () => {
-    expect(verifyAzamPayWebhookSignature(body, sign(body, secret), secret)).toBe(true);
-    expect(verifyAzamPayWebhookSignature(body, sign(body, 'wrong-secret'), secret)).toBe(false);
-    expect(verifyAzamPayWebhookSignature(`${body} `, sign(body, secret), secret)).toBe(false); // body tampered
-    expect(verifyAzamPayWebhookSignature(body, undefined, secret)).toBe(false);
-    expect(verifyAzamPayWebhookSignature(body, 'zz-not-hex', secret)).toBe(false);
-    expect(verifyAzamPayWebhookSignature(body, sign(body, secret), undefined)).toBe(false);
-  });
-});
-
 describe('FakePayments', () => {
   it('records collections, serves scripted statuses, and builds webhook bodies', async () => {
     const fake = new FakePayments();
@@ -265,17 +260,28 @@ describe('FakePayments', () => {
     });
     expect(result.status).toBe('PENDING');
 
-    fake.setProviderStatus(result.providerReference, 'COMPLETED');
-    const status = await fake.queryStatus(result.providerReference);
+    const reference = result.providerReference!;
+    fake.setProviderStatus(reference, 'COMPLETED');
+    const status = await fake.queryStatus(reference);
     expect(status.status).toBe('COMPLETED');
 
-    const webhook = fake.webhookBodyFor(result.providerReference, 'success');
+    // AzamPay CallbackRequest shape, signed like AzamPay signs it.
+    const webhook = fake.webhookBodyFor(reference, 'success');
     expect(webhook).toMatchObject({
-      transactionId: result.providerReference,
-      externalReference: 'appt-9:1',
-      amount: 15_000,
-      currency: 'TZS',
+      utilityref: 'appt-9:1',
+      externalreference: reference,
+      transactionstatus: 'success',
+      amount: '15000',
     });
+    await expect(
+      fake.verifyCallbackSignature({
+        utilityref: 'appt-9:1',
+        externalreference: reference,
+        transactionstatus: 'success',
+        operator: 'Tigo',
+        signature: webhook.signature as string,
+      }),
+    ).resolves.toBe('valid');
   });
 });
 
@@ -358,5 +364,195 @@ describe('AzamPay timeouts and retry rules (Phase 13a)', () => {
     }) as typeof fetch);
     await expect(provider.queryStatus('pg-1')).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
     expect(calls).toBe(3); // token: 1 try + 2 retries, then give up
+  });
+});
+
+describe('AzamPay adapter vs the official spec (Phase 13a)', () => {
+  const token = (): Response =>
+    new Response(
+      JSON.stringify({ data: { accessToken: 'tok', expire: new Date(Date.now() + 3600_000).toISOString() } }),
+      { status: 200 },
+    );
+  type Call = { method: string; url: string; body: Record<string, unknown> | undefined; auth: string | undefined };
+  function provider(
+    respond: (call: Call) => Response | Promise<Response>,
+    extra: Partial<ConstructorParameters<typeof AzamPayProvider>[0]> = {},
+  ) {
+    const calls: Call[] = [];
+    const fetchImpl = (async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const call: Call = {
+        method: init?.method ?? 'GET',
+        url: String(url),
+        body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined,
+        auth: (init?.headers as Record<string, string> | undefined)?.authorization,
+      };
+      calls.push(call);
+      if (call.url.includes('GenerateToken')) return token();
+      return respond(call);
+    }) as typeof fetch;
+    return {
+      calls,
+      azam: new AzamPayProvider({
+        appName: 'daktari',
+        clientId: 'id',
+        clientSecret: 'secret',
+        fetchImpl,
+        retryDelaysMs: [0, 0],
+        ...extra,
+      }),
+    };
+  }
+  const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
+
+  it('status: GET {disbursement host}/api/v1/azampay/transactionstatus with pgReferenceId + bankName; parses data leniently', async () => {
+    const { azam, calls } = provider(() =>
+      json({ success: true, data: { transactionStatus: 'success', amount: '15000', fee: '300' } }),
+    );
+    const result = await azam.queryStatus('pg-123', { phoneE164: '+255712345678' });
+    expect(result).toEqual({ providerReference: 'pg-123', status: 'COMPLETED', amountTzs: 15_000, providerFeeTzs: 300 });
+    const statusCall = calls.find((call) => call.url.includes('transactionstatus'))!;
+    expect(statusCall.url).toBe(
+      'https://api-disbursement-sandbox.azampay.co.tz/api/v1/azampay/transactionstatus?pgReferenceId=pg-123&bankName=Tigo',
+    );
+    expect(statusCall.auth).toBe('Bearer tok');
+  });
+
+  it('status: "Transaction not found" (success:false) stays PENDING — a status check never fails a payment', async () => {
+    const { azam } = provider(() => json({ success: false, message: 'Transaction not found', statusCode: 404 }));
+    await expect(azam.queryStatus('pg-x')).resolves.toMatchObject({ status: 'PENDING' });
+  });
+
+  it('production environment uses the production hosts', async () => {
+    const { azam, calls } = provider(() => json({ transactionId: 't', success: true }), { environment: 'production' });
+    await azam.initiateCollection({
+      phoneE164: '+255742345678',
+      amountTzs: 1_000,
+      currency: 'TZS',
+      externalReference: 'a:1',
+      description: 'x',
+    });
+    expect(calls[0]!.url).toBe('https://authenticator.azampay.co.tz/AppRegistration/GenerateToken');
+    expect(calls[1]!.url).toBe('https://checkout.azampay.co.tz/azampay/mno/checkout');
+  });
+
+  describe('callback RSA signature (key from GET /azampay/v1/public-key)', () => {
+    const keyPair = () => generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const pemOf = (pair: ReturnType<typeof keyPair>) =>
+      pair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+    const signWith = (pair: ReturnType<typeof keyPair>, data: string) =>
+      rsaSign('sha256', Buffer.from(data), { key: pair.privateKey, padding: constants.RSA_PKCS1_PADDING }).toString('base64');
+    const fields = { utilityref: 'vendor-ref-001', externalreference: 'pg-ref-001', transactionstatus: 'success', operator: 'Airtel' };
+
+    it('verifies the documented string {utilityref}{externalreference}{transactionstatus}{operator}', async () => {
+      const pair = keyPair();
+      const { azam, calls } = provider(() => json({ success: true, format: 'Pem', publicKey: pemOf(pair) }));
+      const signature = signWith(pair, 'vendor-ref-001pg-ref-001successAirtel'); // the docs' example
+      await expect(azam.verifyCallbackSignature({ ...fields, signature })).resolves.toBe('valid');
+      // Tampered status (signed "failure", body says "success") → invalid.
+      const forged = signWith(pair, 'vendor-ref-001pg-ref-001failureAirtel');
+      await expect(azam.verifyCallbackSignature({ ...fields, signature: forged })).resolves.toBe('invalid');
+      // Refs-only form (the field description's wording) is reported separately.
+      const refsOnly = signWith(pair, 'vendor-ref-001pg-ref-001');
+      await expect(azam.verifyCallbackSignature({ ...fields, signature: refsOnly })).resolves.toBe('refs-only');
+      await expect(azam.verifyCallbackSignature({ ...fields, signature: null })).resolves.toBe('absent');
+      const keyCall = calls.find((call) => call.url.includes('public-key'))!;
+      expect(keyCall.url).toBe('https://sandbox.azampay.co.tz/azampay/v1/public-key?format=Pem');
+      expect(keyCall.auth).toBe('Bearer tok');
+    });
+
+    it('caches the key and re-fetches once when verification fails (key rotation)', async () => {
+      const oldPair = keyPair();
+      const newPair = keyPair();
+      let served = 0;
+      const { azam, calls } = provider(() => {
+        served += 1;
+        return json({ success: true, publicKey: pemOf(served === 1 ? oldPair : newPair) });
+      });
+      const data = 'vendor-ref-001pg-ref-001successAirtel';
+      await expect(azam.verifyCallbackSignature({ ...fields, signature: signWith(oldPair, data) })).resolves.toBe('valid');
+      await expect(azam.verifyCallbackSignature({ ...fields, signature: signWith(newPair, data) })).resolves.toBe('valid');
+      expect(calls.filter((call) => call.url.includes('public-key'))).toHaveLength(2);
+    });
+
+    it('key fetch failing → unverifiable (never "valid")', async () => {
+      const { azam } = provider(() => new Response('', { status: 503 }));
+      await expect(azam.verifyCallbackSignature({ ...fields, signature: 'AAAA' })).resolves.toBe('unverifiable');
+    });
+  });
+
+  describe('disbursement + name lookup', () => {
+    const checksumPair = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const source = { accountNumber: '255650000000', fullName: 'QGT Ltd', bankName: 'tigo' };
+
+    it('POSTs the spec MnoDisbursementRequest with a Base64(RSA(SHA512)) checksum', async () => {
+      const { azam, calls } = provider(() => json({ pgReferenceId: 'pg-d1', success: true, message: 'in process' }), {
+        disbursementSource: source,
+        checksumPublicKeyPem: checksumPair.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+      });
+      const result = await azam.disburse({
+        operator: 'AIRTEL_MONEY',
+        accountNumber: '+255682345678',
+        accountName: 'Dr Amina Juma',
+        amountTzs: 11_460,
+        reference: 'po-ckabc123-1',
+        remarks: 'Daktari payout',
+      });
+      expect(result).toEqual({ providerReference: 'pg-d1', status: 'PENDING', message: 'in process' });
+      const call = calls.find((entry) => entry.url.endsWith('/api/v1/azampay/disburse'))!;
+      expect(call.url.startsWith('https://api-disbursement-sandbox.azampay.co.tz')).toBe(true);
+      expect(call.body).toMatchObject({
+        source: { countryCode: 'TZ', bankName: 'tigo', accountNumber: '255650000000', currency: 'TZS' },
+        destination: { countryCode: 'TZ', fullName: 'Dr Amina Juma', bankName: 'airtel', accountNumber: '255682345678', currency: 'TZS' },
+        transferDetails: { amount: 11_460 },
+        externalReferenceId: 'po-ckabc123-1',
+      });
+      // The checksum decrypts (with the private half) to SHA-512 of the input string.
+      // Decrypt raw and strip PKCS#1 v1.5 type-2 padding by hand (00 02 <nonzero…> 00 <msg>):
+      // Node refuses PKCS1 padding for private decryption (CVE-2023-46809).
+      const raw = privateDecrypt(
+        { key: checksumPair.privateKey, padding: constants.RSA_NO_PADDING },
+        Buffer.from(call.body!.checksum as string, 'base64'),
+      );
+      expect(raw[0]).toBe(0x00);
+      expect(raw[1]).toBe(0x02);
+      const decrypted = raw.subarray(raw.indexOf(0x00, 2) + 1);
+      expect(decrypted.equals(createHash('sha512').update('25568234567811460po-ckabc123-1').digest())).toBe(true);
+    });
+
+    it('refuses operators the API cannot pay (M-Pesa, Halopesa), unset source, and over-long references', async () => {
+      const { azam } = provider(() => json({ success: true, pgReferenceId: 'x' }), { disbursementSource: source });
+      const base = { accountNumber: '+255742345678', accountName: 'X', amountTzs: 1_000, reference: 'r1', remarks: '' };
+      await expect(azam.disburse({ ...base, operator: 'MPESA' })).rejects.toMatchObject({ code: 'UNSUPPORTED_DESTINATION' });
+      await expect(azam.disburse({ ...base, operator: 'HALOPESA' })).rejects.toMatchObject({ code: 'UNSUPPORTED_DESTINATION' });
+      await expect(azam.disburse({ ...base, operator: 'TIGO_PESA', reference: 'x'.repeat(31) })).rejects.toThrow(RangeError);
+      const unconfigured = provider(() => json({})).azam;
+      await expect(unconfigured.disburse({ ...base, operator: 'TIGO_PESA' })).rejects.toMatchObject({ code: 'NOT_CONFIGURED' });
+    });
+
+    it('refund = disbursement back to the payer (Tigo/Airtel); M-Pesa payer → UNSUPPORTED_DESTINATION (manual)', async () => {
+      const { azam, calls } = provider(() => json({ success: true, pgReferenceId: 'pg-rf' }), { disbursementSource: source });
+      const refund = { providerReference: 'pg-col', amountTzs: 15_000, reason: 'late-success', payerName: 'Asha', reference: 'r1-abc' };
+      await expect(azam.refund({ ...refund, payerPhone: '+255712345678' })).resolves.toEqual({ refundReference: 'pg-rf', status: 'PENDING' });
+      expect(calls.at(-1)!.body).toMatchObject({ destination: { bankName: 'tigo', accountNumber: '255712345678' } });
+      await expect(azam.refund({ ...refund, payerPhone: '+255742345678' })).rejects.toMatchObject({ code: 'UNSUPPORTED_DESTINATION' });
+    });
+
+    it('name lookup reads name, or fname + lname', async () => {
+      const first = provider(() => json({ name: 'AMINA JUMA', status: true, statusCode: 200 })).azam;
+      await expect(first.nameLookup({ operator: 'AIRTEL_MONEY', bankName: null, accountNumber: '+255682345678' })).resolves.toEqual({ found: true, name: 'AMINA JUMA' });
+      const split = provider(() => json({ fname: 'Amina', lname: 'Juma', status: true })).azam;
+      await expect(split.nameLookup({ operator: 'TIGO_PESA', bankName: null, accountNumber: '+255712345678' })).resolves.toMatchObject({ name: 'Amina Juma' });
+      const none = provider(() => json({ status: false, message: 'not found' })).azam;
+      await expect(none.nameLookup({ operator: 'TIGO_PESA', bankName: null, accountNumber: '+255712345678' })).resolves.toMatchObject({ found: false });
+    });
+  });
+
+  it('parseAzamPayAmount: whole TZS strings parse; fractional values are unreadable', () => {
+    expect(parseAzamPayAmount('15000')).toEqual({ amountTzs: 15_000, unreadable: false });
+    expect(parseAzamPayAmount('15000.00')).toEqual({ amountTzs: 15_000, unreadable: false });
+    expect(parseAzamPayAmount(15_000)).toEqual({ amountTzs: 15_000, unreadable: false });
+    expect(parseAzamPayAmount('15000.50')).toEqual({ unreadable: true });
+    expect(parseAzamPayAmount('abc')).toEqual({ unreadable: true });
+    expect(parseAzamPayAmount(undefined)).toEqual({ unreadable: false });
   });
 });

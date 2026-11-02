@@ -85,10 +85,31 @@ export const envSchema = z.object({
   AZAMPAY_APP_NAME: z.string().min(1).optional(),
   AZAMPAY_CLIENT_ID: z.string().min(1).optional(),
   AZAMPAY_CLIENT_SECRET: z.string().min(1).optional(),
+  // sandbox ⇒ AzamPay's sandbox hosts; production ⇒ live hosts. The
+  // production guard refuses NODE_ENV=production with AZAMPAY_ENV=sandbox.
   AZAMPAY_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
   AZAMPAY_AUTH_BASE_URL: z.string().url().optional(),
   AZAMPAY_CHECKOUT_BASE_URL: z.string().url().optional(),
-  AZAMPAY_WEBHOOK_SECRET: z.string().min(16).optional(),
+  AZAMPAY_DISBURSEMENT_BASE_URL: z.string().url().optional(),
+  // AZAMPAY_WEBHOOK_SECRET was removed (13a): AzamPay does not HMAC-sign
+  // callbacks — they carry an RSA signature verified with the public key
+  // AzamPay serves (GET /azampay/v1/public-key), and every callback is
+  // confirmed with a status query.
+  // Disbursements (doctor payouts AND refunds — AzamPay has no refund API).
+  // PEM issued by AzamPay for the disbursement/name-lookup checksum; literal
+  // "\n" sequences are accepted so it fits on one .env line.
+  AZAMPAY_CHECKSUM_PUBLIC_KEY: z
+    .string()
+    .min(1)
+    .transform((value) => value.replace(/\\n/g, '\n'))
+    .optional(),
+  // The merchant disbursement float account AzamPay registered for you.
+  AZAMPAY_DISBURSE_SOURCE_ACCOUNT: z.string().min(1).optional(),
+  AZAMPAY_DISBURSE_SOURCE_NAME: z.string().min(1).optional(),
+  AZAMPAY_DISBURSE_SOURCE_BANK: z.enum(['tigo', 'airtel', 'azampesa']).optional(),
+  // `pnpm azampay:sandbox-test` only: sandbox wallet numbers to charge / pay.
+  AZAMPAY_SANDBOX_TEST_MSISDN: z.string().regex(/^\+255\d{9}$/).optional(),
+  AZAMPAY_SANDBOX_TEST_DISBURSE_MSISDN: z.string().regex(/^\+255\d{9}$/).optional(),
 
   // ── AWS (document storage) ────────────────────────────────────────────────
   // Unset ⇒ LocalDiskStorage under STORAGE_ROOT; S3 takes over in production.

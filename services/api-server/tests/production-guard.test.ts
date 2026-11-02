@@ -28,7 +28,11 @@ const prodEnv: Record<string, string> = {
   AZAMPAY_APP_NAME: 'daktari',
   AZAMPAY_CLIENT_ID: 'azam-id',
   AZAMPAY_CLIENT_SECRET: 'azam-secret',
-  AZAMPAY_WEBHOOK_SECRET: 'whsec-production-secret-value',
+  AZAMPAY_ENV: 'production',
+  AZAMPAY_CHECKSUM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\\nMIIB\\n-----END PUBLIC KEY-----',
+  AZAMPAY_DISBURSE_SOURCE_ACCOUNT: '255650000000',
+  AZAMPAY_DISBURSE_SOURCE_NAME: 'QGT Ltd',
+  AZAMPAY_DISBURSE_SOURCE_BANK: 'tigo',
 };
 
 describe('production adapter guard', () => {
@@ -51,7 +55,11 @@ describe('production adapter guard', () => {
       AZAMPAY_APP_NAME: undefined,
       AZAMPAY_CLIENT_ID: undefined,
       AZAMPAY_CLIENT_SECRET: undefined,
-      AZAMPAY_WEBHOOK_SECRET: undefined,
+      AZAMPAY_ENV: 'sandbox' as const,
+      AZAMPAY_CHECKSUM_PUBLIC_KEY: undefined,
+      AZAMPAY_DISBURSE_SOURCE_ACCOUNT: undefined,
+      AZAMPAY_DISBURSE_SOURCE_NAME: undefined,
+      AZAMPAY_DISBURSE_SOURCE_BANK: undefined,
       SMS_API_KEY: '',
       DAILY_CO_API_KEY: '',
     };
@@ -65,12 +73,16 @@ describe('production adapter guard', () => {
         'AZAMPAY_CLIENT_ID',
         'AZAMPAY_CLIENT_SECRET',
         'AZAMPAY_APP_NAME',
-        'AZAMPAY_WEBHOOK_SECRET',
+        'AZAMPAY_ENV',
+        'AZAMPAY_CHECKSUM_PUBLIC_KEY',
+        'AZAMPAY_DISBURSE_SOURCE_ACCOUNT',
+        'AZAMPAY_DISBURSE_SOURCE_NAME',
+        'AZAMPAY_DISBURSE_SOURCE_BANK',
         'SMS_API_KEY',
         'DAILY_CO_API_KEY',
       ]),
     );
-    expect(offenders.length).toBe(10);
+    expect(offenders.length).toBe(14);
 
     const error = (() => {
       try {
@@ -85,6 +97,12 @@ describe('production adapter guard', () => {
     for (const name of offenders) {
       expect((error as ProductionReadinessError).message).toContain(name);
     }
+  });
+
+  it('a PEM pasted on one .env line (literal \\n) is unescaped', () => {
+    expect(loadEnv(prodEnv).AZAMPAY_CHECKSUM_PUBLIC_KEY).toBe(
+      '-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----',
+    );
   });
 
   it('reports a single offender when only one is missing', () => {

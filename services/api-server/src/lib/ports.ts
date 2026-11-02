@@ -284,6 +284,8 @@ export interface PaymentRepoPort {
     data: Prisma.PaymentUpdateManyMutationInput & { status: PaymentStatus },
   ): Promise<Payment | null>;
   findByIdempotencyKeyPrefix(prefix: string): Promise<Payment | null>;
+  findByRefundReference(refundReference: string): Promise<Payment | null>;
+  listRefundsInFlight(cutoff: Date, limit?: number): Promise<Payment[]>;
   /** Guarded refund claim: applies only while status=COMPLETED and refundState ∈ from. */
   transitionRefundState(
     id: string,
@@ -298,7 +300,7 @@ export interface PaymentRepoPort {
     query: { page: number; pageSize: number },
   ): Promise<{ items: Payment[]; total: number }>;
   adminList(filters: AdminPaymentFilters): Promise<{ items: Payment[]; total: number }>;
-  listRefundPending(): Promise<Payment[]>;
+  listRefundPending(staleBefore: Date): Promise<Payment[]>;
 }
 
 export interface DoctorPaymentRepoPort {

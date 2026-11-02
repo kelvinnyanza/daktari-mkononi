@@ -170,6 +170,7 @@ enum PaymentReviewReason {
   AMOUNT_MISMATCH // provider-reported amount ≠ amount owed → never confirmed
   STUCK_PROCESSING // abandoned payment still not final after 24h of status checks
   STRAY_ATTEMPT // a superseded attempt reported success → money held outside the current attempt
+  STATUS_CONFLICT // signed callback and status query disagree → nothing applied until an admin checks
 }
 
 enum RefundState {
@@ -794,6 +795,7 @@ model Payment {
   refundPending           Boolean           @default(false) // provider refund failed — chase manually
   refundedAt              DateTime?
   refundState             RefundState?
+  refundAttempts          Int               @default(0) // refund disbursement reference = r<attempt>-<paymentId>
   // What the provider says it actually collected (callback/status/statement).
   receivedAmountTzs       Int?
   // Admin review queue (late success, amount mismatch, stuck, stray attempt).
@@ -815,6 +817,8 @@ model Payment {
   @@index([aggregatorTransactionId])
   @@index([status, updatedAt])
   @@index([reviewReason, reviewResolvedAt])
+  @@index([refundState, updatedAt])
+  @@index([refundReference])
 }
 
 model DoctorPayment {
