@@ -220,3 +220,85 @@ describe('FakePayments', () => {
     });
   });
 });
+
+describe('AzamPay timeouts and retry rules (Phase 13a)', () => {
+  const tokenResponse = (): Response =>
+    new Response(
+      JSON.stringify({ data: { accessToken: 't', expire: new Date(Date.now() + 3600_000).toISOString() } }),
+      { status: 200 },
+    );
+  const collection = {
+    phoneE164: '+255712345678',
+    amountTzs: 15_000,
+    currency: 'TZS' as const,
+    externalReference: 'appt-1:1',
+    description: 'Consultation',
+  };
+  /** Never answers; rejects only when the request's deadline aborts it. */
+  const hang = (init?: RequestInit): Promise<Response> =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        reject(init.signal?.reason as Error);
+      });
+    });
+  const make = (fetchImpl: typeof fetch): AzamPayProvider =>
+    new AzamPayProvider({
+      appName: 'a',
+      clientId: 'b',
+      clientSecret: 'c',
+      fetchImpl,
+      timeouts: { readMs: 50, writeMs: 50 },
+      retryDelaysMs: [0, 0],
+    });
+
+  it('a checkout timeout is OUTCOME_UNKNOWN (money may have moved) and is never retried', async () => {
+    let checkouts = 0;
+    const provider = make((async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      if (String(url).includes('GenerateToken')) return tokenResponse();
+      checkouts += 1;
+      return hang(init);
+    }) as typeof fetch);
+    await expect(provider.initiateCollection(collection)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' });
+    expect(checkouts).toBe(1);
+  });
+
+  it('a checkout 5xx is OUTCOME_UNKNOWN, not a failure; connection refused is PROVIDER_UNAVAILABLE', async () => {
+    const fivexx = make((async (url: Parameters<typeof fetch>[0]) =>
+      String(url).includes('GenerateToken') ? tokenResponse() : new Response('', { status: 502 })) as typeof fetch);
+    await expect(fivexx.initiateCollection(collection)).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN' });
+
+    const refused = make((async (url: Parameters<typeof fetch>[0]) => {
+      if (String(url).includes('GenerateToken')) return tokenResponse();
+      throw new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } });
+    }) as typeof fetch);
+    await expect(refused.initiateCollection(collection)).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+  });
+
+  it('reads (token, status) are retried on 5xx / timeouts and then succeed', async () => {
+    let tokenCalls = 0;
+    let statusCalls = 0;
+    const provider = make((async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      if (String(url).includes('GenerateToken')) {
+        tokenCalls += 1;
+        return tokenCalls === 1 ? new Response('', { status: 503 }) : tokenResponse();
+      }
+      statusCalls += 1;
+      if (statusCalls === 1) return hang(init);
+      return new Response(JSON.stringify({ data: { transactionStatus: 'success' } }), { status: 200 });
+    }) as typeof fetch);
+    const status = await provider.queryStatus('pg-1');
+    expect(status.status).toBe('COMPLETED');
+    expect(tokenCalls).toBe(2);
+    expect(statusCalls).toBe(2);
+  });
+
+  it('a read that keeps failing gives up after the retry budget with PROVIDER_UNAVAILABLE', async () => {
+    let calls = 0;
+    const provider = make((async () => {
+      calls += 1;
+      return new Response('', { status: 500 });
+    }) as typeof fetch);
+    await expect(provider.queryStatus('pg-1')).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    expect(calls).toBe(3); // token: 1 try + 2 retries, then give up
+  });
+});

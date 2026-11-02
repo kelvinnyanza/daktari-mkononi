@@ -199,6 +199,7 @@ export class PaymentService implements PaymentPort {
       payment = await this.collect(payment);
     } catch (error) {
       if (error instanceof MobileMoneyError) {
+        // collect() already absorbed OUTCOME_UNKNOWN (payment stays PROCESSING).
         await this.audit(userId, 'PAYMENT_INITIATION_FAILED', payment.id, { code: error.code });
         throw new ApiError(
           error.code === 'INVALID_MSISDN' ? 400 : 503,
@@ -214,15 +215,34 @@ export class PaymentService implements PaymentPort {
     return this.toView(payment);
   }
 
-  /** Start the wallet collection and move the Payment to PROCESSING. */
+  /**
+   * Start the wallet collection and move the Payment to PROCESSING. A
+   * timeout / 5xx on the checkout call (OUTCOME_UNKNOWN) means the PIN prompt
+   * may have gone out: the payment goes PROCESSING with no provider
+   * reference — never FAILED — and is settled by the callback (matched on
+   * our reference) or the statement; a retry is refused while it is open.
+   */
   private async collect(payment: Payment): Promise<Payment> {
-    const result = await this.deps.mobileMoney.initiateCollection({
-      phoneE164: payment.payerPhone ?? '',
-      amountTzs: payment.amountTzs,
-      currency: 'TZS',
-      externalReference: payment.idempotencyKey,
-      description: 'Daktari Mkononi consultation',
-    });
+    let result: Awaited<ReturnType<MobileMoneyPort['initiateCollection']>>;
+    try {
+      result = await this.deps.mobileMoney.initiateCollection({
+        phoneE164: payment.payerPhone ?? '',
+        amountTzs: payment.amountTzs,
+        currency: 'TZS',
+        externalReference: payment.idempotencyKey,
+        description: 'Daktari Mkononi consultation',
+      });
+    } catch (error) {
+      if (error instanceof MobileMoneyError && error.code === 'OUTCOME_UNKNOWN') {
+        const processing = await this.deps.payments.transitionStatus(payment.id, ['PENDING', 'FAILED'], {
+          status: 'PROCESSING',
+          aggregatorTransactionId: null,
+        });
+        await this.audit(null, 'PAYMENT_OUTCOME_UNKNOWN', payment.id, { stage: 'checkout' });
+        return processing ?? payment;
+      }
+      throw error;
+    }
     if (result.status === 'FAILED') {
       return (
         (await this.deps.payments.transitionStatus(payment.id, ['PENDING', 'PROCESSING'], {
@@ -258,6 +278,7 @@ export class PaymentService implements PaymentPort {
     source: 'webhook' | 'reconciliation',
   ): Promise<{ applied: boolean }> {
     if (result.status === 'COMPLETED') {
+      const reported = result.amountTzs;
       const applied = await this.deps.payments.transitionStatus(
         payment.id,
         ['PENDING', 'PROCESSING'],
@@ -265,12 +286,25 @@ export class PaymentService implements PaymentPort {
           status: 'COMPLETED',
           paidAt: this.now(),
           externalReference: result.providerReference,
-          receivedAmountTzs: result.amountTzs ?? payment.amountTzs,
+          receivedAmountTzs: reported ?? payment.amountTzs,
         },
       );
       if (!applied) return { applied: false }; // replay / race → no-op
 
-      await this.audit(null, 'PAYMENT_COMPLETED', payment.id, { source });
+      await this.audit(null, 'PAYMENT_COMPLETED', payment.id, {
+        source,
+        amountReported: reported !== undefined,
+      });
+      if (reported !== undefined && reported !== payment.amountTzs) {
+        // Under- or over-payment: never confirm on it, never auto-refund an
+        // amount nobody has checked — an admin decides (refund / top-up).
+        await this.flagForReview(
+          applied,
+          'AMOUNT_MISMATCH',
+          `owed TZS ${payment.amountTzs}, provider reported TZS ${reported}`,
+        );
+        return { applied: true };
+      }
       await this.settle(applied);
       return { applied: true };
     }
@@ -410,6 +444,7 @@ export class PaymentService implements PaymentPort {
     transactionId: string;
     externalReference: string;
     status: 'success' | 'failure';
+    amount?: number | undefined;
     message?: string | undefined;
   }): Promise<{ outcome: 'applied' | 'noop' | 'unknown-reference' }> {
     const payment =
@@ -429,6 +464,7 @@ export class PaymentService implements PaymentPort {
         status: body.status === 'success' ? 'COMPLETED' : 'FAILED',
         providerReference: body.transactionId,
         ...(body.message !== undefined ? { failureReason: body.message } : {}),
+        ...(body.amount !== undefined ? { amountTzs: body.amount } : {}),
       },
       'webhook',
     );
@@ -463,6 +499,7 @@ export class PaymentService implements PaymentPort {
             status: status.status,
             providerReference: status.providerReference,
             ...(status.failureReason !== undefined ? { failureReason: status.failureReason } : {}),
+            ...(status.amountTzs !== undefined ? { amountTzs: status.amountTzs } : {}),
           },
           'reconciliation',
         );

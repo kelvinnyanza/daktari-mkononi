@@ -44,6 +44,31 @@ const refundResponseSchema = z.object({
   message: z.string().optional(),
 });
 
+/** Wraps an error the read path may retry. */
+class RetryableError extends Error {
+  constructor(readonly mapped: MobileMoneyError) {
+    super(mapped.message);
+  }
+}
+
+const sleep = (ms: number): Promise<void> =>
+  ms <= 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, ms));
+
+/** DNS failure / connection refused: the request never reached AzamPay. */
+function neverReachedProvider(error: unknown): boolean {
+  const code = (error as { cause?: { code?: unknown } } | undefined)?.cause?.code;
+  return code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'EAI_AGAIN';
+}
+
+export interface AzamPayTimeouts {
+  /** Token, status, name lookup, public key. */
+  readMs: number;
+  /** Checkout, disbursement. */
+  writeMs: number;
+}
+
+export const DEFAULT_AZAMPAY_TIMEOUTS: AzamPayTimeouts = { readMs: 10_000, writeMs: 20_000 };
+
 export interface AzamPayOptions {
   appName: string | undefined;
   clientId: string | undefined;
@@ -54,6 +79,9 @@ export interface AzamPayOptions {
   checkoutBaseUrl?: string;
   fetchImpl?: typeof fetch;
   now?: () => Date;
+  timeouts?: AzamPayTimeouts;
+  /** Backoff between read retries; its length is the retry count (tests pass [0, 0]). */
+  retryDelaysMs?: readonly number[];
 }
 
 /**
@@ -98,6 +126,8 @@ export class AzamPayProvider implements MobileMoneyPort {
   private readonly checkoutBaseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => Date;
+  private readonly timeouts: AzamPayTimeouts;
+  private readonly retryDelaysMs: readonly number[];
   private cachedToken: { token: string; expiresAt: number } | null = null;
 
   constructor(private readonly options: AzamPayOptions) {
@@ -108,6 +138,8 @@ export class AzamPayProvider implements MobileMoneyPort {
       options.checkoutBaseUrl ?? (production ? PRODUCTION_CHECKOUT_URL : SANDBOX_CHECKOUT_URL);
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.now = options.now ?? ((): Date => new Date());
+    this.timeouts = options.timeouts ?? DEFAULT_AZAMPAY_TIMEOUTS;
+    this.retryDelaysMs = options.retryDelaysMs ?? [500, 2_000];
   }
 
   private assertConfigured(): { appName: string; clientId: string; clientSecret: string } {
@@ -124,11 +156,13 @@ export class AzamPayProvider implements MobileMoneyPort {
     if (this.cachedToken && this.cachedToken.expiresAt > this.now().getTime()) {
       return this.cachedToken.token;
     }
-    const response = await this.request('POST', `${this.authBaseUrl}/AppRegistration/GenerateToken`, {
-      appName: config.appName,
-      clientId: config.clientId,
-      clientSecret: config.clientSecret,
-    });
+    const response = await this.request(
+      'POST',
+      `${this.authBaseUrl}/AppRegistration/GenerateToken`,
+      { appName: config.appName, clientId: config.clientId, clientSecret: config.clientSecret },
+      undefined,
+      'read',
+    );
     const parsed = this.parse(tokenResponseSchema, response, 'token');
     const expiresAt = Date.parse(parsed.data.expire);
     this.cachedToken = {
@@ -160,6 +194,7 @@ export class AzamPayProvider implements MobileMoneyPort {
         additionalProperties: { description: input.description },
       },
       token,
+      'write',
     );
     const parsed = this.parse(checkoutResponseSchema, response, 'checkout');
     if (!parsed.success) {
@@ -178,6 +213,7 @@ export class AzamPayProvider implements MobileMoneyPort {
       `${this.checkoutBaseUrl}/api/v1/Partner/GetTransactionStatus?pgReferenceId=${encodeURIComponent(providerReference)}`,
       undefined,
       token,
+      'read',
     );
     const parsed = this.parse(statusResponseSchema, response, 'status');
     const status =
@@ -205,6 +241,7 @@ export class AzamPayProvider implements MobileMoneyPort {
         reason: input.reason,
       },
       token,
+      'write',
     );
     const parsed = this.parse(refundResponseSchema, response, 'refund');
     return { refundReference: parsed.refundId, status: parsed.success ? 'COMPLETED' : 'FAILED' };
@@ -212,12 +249,48 @@ export class AzamPayProvider implements MobileMoneyPort {
 
   // ── HTTP plumbing ──────────────────────────────────────────────────────────
 
+  /**
+   * Every AzamPay call has a deadline. Retry rules:
+   *  - 'read' calls (token, status, name lookup, public key) are idempotent:
+   *    retried on network errors, timeouts, 429 and 5xx with backoff.
+   *  - 'write' calls (checkout, disbursement) move money and are NEVER
+   *    retried here. A failure before the request could reach AzamPay (DNS,
+   *    connection refused) is PROVIDER_UNAVAILABLE; anything after (timeout,
+   *    reset, 429/5xx, unreadable 2xx) is OUTCOME_UNKNOWN — the caller must
+   *    leave the payment for the status check, never mark it failed.
+   */
   private async request(
     method: 'GET' | 'POST',
     url: string,
-    body?: Record<string, unknown>,
-    bearer?: string,
+    body: Record<string, unknown> | undefined,
+    bearer: string | undefined,
+    kind: 'read' | 'write',
   ): Promise<unknown> {
+    const attempts = kind === 'read' ? this.retryDelaysMs.length + 1 : 1;
+    let lastError: MobileMoneyError | undefined;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (attempt > 0) await sleep(this.retryDelaysMs[attempt - 1] ?? 0);
+      try {
+        return await this.requestOnce(method, url, body, bearer, kind);
+      } catch (error) {
+        if (!(error instanceof RetryableError)) throw error;
+        lastError = error.mapped;
+      }
+    }
+    throw lastError ?? new MobileMoneyError('PROVIDER_UNAVAILABLE', `provider call failed: ${url}`);
+  }
+
+  private async requestOnce(
+    method: 'GET' | 'POST',
+    url: string,
+    body: Record<string, unknown> | undefined,
+    bearer: string | undefined,
+    kind: 'read' | 'write',
+  ): Promise<unknown> {
+    const label = `${method} ${new URL(url).pathname}`;
+    const afterSend = (detail: string, cause?: unknown): MobileMoneyError =>
+      new MobileMoneyError(kind === 'write' ? 'OUTCOME_UNKNOWN' : 'PROVIDER_UNAVAILABLE', detail, cause);
+
     let response: Response;
     try {
       response = await this.fetchImpl(url, {
@@ -227,25 +300,43 @@ export class AzamPayProvider implements MobileMoneyPort {
           ...(bearer !== undefined ? { authorization: `Bearer ${bearer}` } : {}),
         },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(kind === 'write' ? this.timeouts.writeMs : this.timeouts.readMs),
       });
     } catch (error) {
-      throw new MobileMoneyError('PROVIDER_UNAVAILABLE', `network failure calling ${url}`, error);
+      if (neverReachedProvider(error)) {
+        throw new RetryableError(
+          new MobileMoneyError('PROVIDER_UNAVAILABLE', `could not reach provider: ${label}`, error),
+        );
+      }
+      const timedOut =
+        error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+      const mapped = afterSend(`${timedOut ? 'timeout' : 'network failure'} on ${label}`, error);
+      if (kind === 'write') throw mapped;
+      throw new RetryableError(mapped);
     }
+
     if (response.status === 401 || response.status === 403) {
       this.cachedToken = null; // force re-auth on the next call
-      throw new MobileMoneyError('PROVIDER_UNAVAILABLE', `provider auth rejected (${response.status})`);
+      throw new MobileMoneyError('PROVIDER_UNAVAILABLE', `provider auth rejected (${response.status}) on ${label}`);
     }
-    if (response.status >= 500) {
-      throw new MobileMoneyError('PROVIDER_UNAVAILABLE', `provider error ${response.status}`);
+    if (response.status === 429 || response.status >= 500) {
+      const mapped = afterSend(`provider error ${response.status} on ${label}`);
+      if (kind === 'write') throw mapped;
+      throw new RetryableError(mapped);
     }
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       if (/msisdn|phone|account/i.test(text) && response.status === 400) {
-        throw new MobileMoneyError('INVALID_MSISDN', `provider rejected the MSISDN: ${text}`);
+        throw new MobileMoneyError('INVALID_MSISDN', `provider rejected the account number on ${label}`);
       }
-      throw new MobileMoneyError('PROVIDER_UNAVAILABLE', `provider error ${response.status}: ${text}`);
+      throw new MobileMoneyError('PROVIDER_UNAVAILABLE', `provider error ${response.status} on ${label}`);
     }
-    return response.json();
+    try {
+      return await response.json();
+    } catch (error) {
+      // A 2xx with an unreadable body: a write may well have been accepted.
+      throw afterSend(`unreadable provider response on ${label}`, error);
+    }
   }
 
   private parse<T>(schema: z.ZodType<T>, payload: unknown, label: string): T {

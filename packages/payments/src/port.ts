@@ -24,6 +24,8 @@ export interface QueryStatusResult {
   providerReference: string;
   status: ProviderPaymentStatus;
   failureReason?: string;
+  /** Whole TZS the provider says moved, when its answer carries an amount. */
+  amountTzs?: number;
 }
 
 export interface RefundInput {
@@ -37,8 +39,17 @@ export interface RefundResult {
   status: RefundStatus;
 }
 
+/**
+ * PROVIDER_UNAVAILABLE — the request certainly did not take effect (never
+ * sent, or refused before processing): safe to fail and retry.
+ * OUTCOME_UNKNOWN — a money-moving request (checkout, disbursement) was sent
+ * but no reliable answer came back (timeout, connection reset, 5xx). The
+ * money MAY have moved: never mark it failed; leave it for the status check,
+ * callback or statement.
+ */
 export type MobileMoneyErrorCode =
   | 'PROVIDER_UNAVAILABLE'
+  | 'OUTCOME_UNKNOWN'
   | 'INVALID_MSISDN'
   | 'INSUFFICIENT_FUNDS_HINT'
   | 'NOT_CONFIGURED';

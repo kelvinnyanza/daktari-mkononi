@@ -559,3 +559,61 @@ describe('late / orphan payments (Phase 13a)', () => {
     await expectApiError(payments.resolveReview(admin.id, payment.id, 'again'), 'REVIEW_NOT_OPEN');
   });
 });
+
+describe('amount check + unknown outcomes (Phase 13a)', () => {
+  it('provider-reported amount ≠ owed → COMPLETED but NOT confirmed, flagged AMOUNT_MISMATCH, no auto-refund', async () => {
+    const { booked, payment } = await bookedMobileMoney(15_000);
+    await payments.handleWebhook({
+      transactionId: deps.mobileMoney.collections[0]!.providerReference,
+      externalReference: payment.idempotencyKey,
+      status: 'success',
+      amount: 1_500,
+    });
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.status).toBe('COMPLETED');
+    expect(row.receivedAmountTzs).toBe(1_500);
+    expect(row.reviewReason).toBe('AMOUNT_MISMATCH');
+    expect(row.reviewNote).toContain('owed TZS 15000');
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
+    expect(deps.mobileMoney.refunds).toHaveLength(0);
+  });
+
+  it('matching amount confirms as before', async () => {
+    const { booked, payment } = await bookedMobileMoney(15_000);
+    await payments.handleWebhook({
+      transactionId: deps.mobileMoney.collections[0]!.providerReference,
+      externalReference: payment.idempotencyKey,
+      status: 'success',
+      amount: 15_000,
+    });
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CONFIRMED');
+    expect(deps.state.paymentRows.get(payment.id)!.receivedAmountTzs).toBe(15_000);
+  });
+
+  it('checkout OUTCOME_UNKNOWN at booking → PROCESSING without a reference (never FAILED); retry refused; callback settles it', async () => {
+    deps.mobileMoney.nextCollectionThrows('OUTCOME_UNKNOWN');
+    const { user, booked, payment } = await bookedMobileMoney();
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.status).toBe('PROCESSING');
+    expect(row.aggregatorTransactionId).toBeNull();
+    expect(deps.state.auditEntries.some((entry) => entry.action === 'PAYMENT_OUTCOME_UNKNOWN')).toBe(true);
+
+    const again = await payments.payForAppointment(user.id, booked.id);
+    expect(again.status).toBe('PROCESSING'); // no second PIN prompt while the first may be live
+
+    // Reconciliation cannot query without a provider reference — and must not fail it.
+    deps.state.paymentRows.set(payment.id, { ...row, updatedAt: new Date(NOW.getTime() - 120_000) });
+    await payments.reconcilePendingPayments();
+    expect(deps.state.paymentRows.get(payment.id)!.status).toBe('PROCESSING');
+
+    // The callback is matched on OUR reference and settles it normally.
+    const result = await payments.handleWebhook({
+      transactionId: 'azam-late-ref',
+      externalReference: payment.idempotencyKey,
+      status: 'success',
+      amount: payment.amountTzs,
+    });
+    expect(result.outcome).toBe('applied');
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CONFIRMED');
+  });
+});
