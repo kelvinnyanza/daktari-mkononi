@@ -37,6 +37,8 @@ import { ScreeningService } from './modules/ai/screening.service.js';
 import { buildAdminRoutes } from './modules/admin/admin.routes.js';
 import { PaymentService } from './modules/payments/payment.service.js';
 import { FeeSettingsService } from './modules/payments/fee-settings.service.js';
+import { PayoutService } from './modules/payouts/payout.service.js';
+import { buildPayoutRoutes } from './modules/payouts/payout.routes.js';
 import { buildPaymentRoutes } from './modules/payments/payment.routes.js';
 import { buildAzamPayWebhookRoutes } from './modules/payments/webhook.routes.js';
 import { buildDevRoutes } from './modules/dev/dev.routes.js';
@@ -65,6 +67,7 @@ export interface BuiltApp {
     screenings: ScreeningService;
     payments: PaymentService;
     fees: FeeSettingsService;
+    payouts: PayoutService;
   };
   wsTickets: WsTicketStore;
 }
@@ -181,6 +184,17 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
     },
     now,
   );
+  const payoutService = new PayoutService(
+    {
+      payouts: options.deps.payouts,
+      doctors: options.deps.doctors,
+      mobileMoney: options.deps.mobileMoney,
+      fees: feeSettingsService,
+      sms: options.deps.sms,
+      auditLogs: options.deps.auditLogs,
+    },
+    now,
+  );
   const appointmentService = new AppointmentService(
     {
       appointments: options.deps.appointments,
@@ -278,12 +292,20 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
   await app.register(buildPaymentRoutes(paymentService, feeSettingsService, options.deps.sessions, now), {
     prefix: '/api/v1',
   });
+  await app.register(buildPayoutRoutes(payoutService, options.deps.sessions, now), {
+    prefix: '/api/v1',
+  });
   await app.register(
     buildAzamPayWebhookRoutes(
       paymentService,
       options.deps.mobileMoney,
       options.deps.auditLogs,
-      async (body) => (await paymentService.handleDisbursementCallback(body)).outcome,
+      // A disbursement is either a refund (Payment) or a doctor payout.
+      async (body) => {
+        const refund = await paymentService.handleDisbursementCallback(body);
+        if (refund.outcome !== 'not-a-refund') return refund.outcome;
+        return (await payoutService.handleDisbursementCallback(body)).outcome;
+      },
     ),
     {
       prefix: '/webhooks/azampay',
@@ -316,6 +338,7 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
       screenings: screeningService,
       payments: paymentService,
       fees: feeSettingsService,
+      payouts: payoutService,
     },
     wsTickets,
   };

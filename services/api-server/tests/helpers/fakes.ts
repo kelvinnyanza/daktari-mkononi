@@ -36,6 +36,7 @@ import { FakeAi } from '@daktari/ai';
 import { FakePayments } from '@daktari/payments';
 import type { AppDeps, AuditLogEntry } from '../../src/lib/ports.js';
 import { FakePaymentPort } from '../../src/lib/fake-payment.js';
+import { makeFakePayoutRepo } from './fake-payouts.js';
 import { InMemoryPubSub } from '../../src/lib/pubsub.js';
 
 export function makeUser(overrides: Partial<User> = {}): User {
@@ -217,6 +218,7 @@ export function makeFakeDeps(): FakeDeps {
   const paymentRows = new Map<string, Payment>();
   const doctorPaymentRows = new Map<string, DoctorPayment>();
   const feeSettingsRows: FeeSettings[] = [];
+  const fakePayouts = makeFakePayoutRepo(doctorPaymentRows);
   const insurances = new Map<string, PatientInsurance>();
   const sessions = new Map<string, Session>();
   const otps = new Map<string, OtpCode>();
@@ -1153,12 +1155,23 @@ export function makeFakeDeps(): FakeDeps {
           status: 'PENDING',
           reference: input.reference,
           paymentId: input.paymentId,
+          kind: 'EARNING',
+          note: null,
+          failureReason: null,
+          payoutItemId: null,
           paidAt: null,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
         doctorPaymentRows.set(accrual.id, accrual);
         return Promise.resolve(accrual);
+      },
+      totalsByStatus: (doctorId) => {
+        const totals = { PENDING: 0, PROCESSING: 0, PAID: 0, FAILED: 0, REVERSED: 0 };
+        for (const row of doctorPaymentRows.values()) {
+          if (row.doctorId === doctorId) totals[row.status] += row.amountTzs;
+        }
+        return Promise.resolve(totals);
       },
       listForDoctor: (doctorId, query) => {
         const all = [...doctorPaymentRows.values()]
@@ -1189,6 +1202,8 @@ export function makeFakeDeps(): FakeDeps {
         });
       },
     },
+
+    payouts: fakePayouts.repo,
 
     feeSettings: {
       findEffective: (at) =>

@@ -897,6 +897,10 @@ export class PaymentService implements PaymentPort {
       amountTzs: number;
       status: string;
       reference: string | null;
+      kind: string;
+      note: string | null;
+      failureReason: string | null;
+      paidAt: Date | null;
       createdAt: Date;
       /** Frozen split of the patient payment this earning came from (null on adjustments). */
       breakdown: {
@@ -910,6 +914,8 @@ export class PaymentService implements PaymentPort {
       } | null;
     }>;
     totalAmountTzs: number;
+    /** All-time per-status totals over EVERY earning row (not just this page). */
+    totals: { pendingTzs: number; processingTzs: number; paidTzs: number; failedTzs: number; reversedTzs: number };
     page: number;
     pageSize: number;
     total: number;
@@ -918,16 +924,20 @@ export class PaymentService implements PaymentPort {
     if (!doctor) {
       throw new ApiError(404, 'DOCTOR_NOT_FOUND', msg('Daktari hajapatikana', 'Doctor not found'));
     }
-    const { items, total, totalAmountTzs } = await this.deps.doctorPayments.listForDoctor(
-      doctor.id,
-      query,
-    );
+    const [{ items, total, totalAmountTzs }, byStatus] = await Promise.all([
+      this.deps.doctorPayments.listForDoctor(doctor.id, query),
+      this.deps.doctorPayments.totalsByStatus(doctor.id),
+    ]);
     return {
       items: items.map((row) => ({
         id: row.id,
         amountTzs: row.amountTzs,
         status: row.status,
         reference: row.reference,
+        kind: row.kind,
+        note: row.note,
+        failureReason: row.failureReason,
+        paidAt: row.paidAt,
         createdAt: row.createdAt,
         breakdown:
           row.payment === null
@@ -943,6 +953,13 @@ export class PaymentService implements PaymentPort {
               },
       })),
       totalAmountTzs,
+      totals: {
+        pendingTzs: byStatus.PENDING,
+        processingTzs: byStatus.PROCESSING,
+        paidTzs: byStatus.PAID,
+        failedTzs: byStatus.FAILED,
+        reversedTzs: byStatus.REVERSED,
+      },
       page: query.page,
       pageSize: query.pageSize,
       total,

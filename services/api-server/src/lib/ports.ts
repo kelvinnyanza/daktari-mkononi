@@ -31,6 +31,16 @@ import type {
   Doctor,
   DoctorEarningRow,
   DoctorPayment,
+  DoctorPaymentStatus,
+  DoctorPayoutAccount,
+  DraftPayoutDoctor,
+  PayoutBatch,
+  PayoutBatchStatus,
+  PayoutBatchWithItems,
+  PayoutItem,
+  PayoutItemStatus,
+  PendingEarningsSummary,
+  UpsertPayoutAccountInput,
   DoctorDocument,
   DoctorDocumentType,
   DoctorSchedule,
@@ -303,8 +313,47 @@ export interface PaymentRepoPort {
   listRefundPending(staleBefore: Date): Promise<Payment[]>;
 }
 
+export interface PayoutRepoPort {
+  findAccount(doctorId: string): Promise<DoctorPayoutAccount | null>;
+  upsertAccount(doctorId: string, data: UpsertPayoutAccountInput): Promise<DoctorPayoutAccount>;
+  updateAccount(doctorId: string, data: Prisma.DoctorPayoutAccountUpdateInput): Promise<DoctorPayoutAccount>;
+  listAccountsNeedingReview(): Promise<DoctorPayoutAccount[]>;
+  pendingEarningsByDoctor(cutoff: Date): Promise<PendingEarningsSummary[]>;
+  createDraftBatch(input: {
+    cutoff: Date;
+    createdByUserId: string;
+    note: string | null;
+    doctors: DraftPayoutDoctor[];
+    minPayoutTzs: number;
+  }): Promise<PayoutBatchWithItems>;
+  findBatch(id: string): Promise<PayoutBatchWithItems | null>;
+  listBatches(limit?: number): Promise<PayoutBatch[]>;
+  transitionBatch(
+    id: string,
+    from: PayoutBatchStatus[],
+    data: Prisma.PayoutBatchUpdateManyMutationInput & { status: PayoutBatchStatus },
+  ): Promise<PayoutBatch | null>;
+  findItem(id: string): Promise<PayoutItem | null>;
+  findItemByReference(reference: string): Promise<PayoutItem | null>;
+  findItemByProviderReference(providerReference: string): Promise<PayoutItem | null>;
+  transitionItem(
+    id: string,
+    from: PayoutItemStatus[],
+    data: Prisma.PayoutItemUpdateManyMutationInput & { status?: PayoutItemStatus },
+  ): Promise<PayoutItem | null>;
+  setItemEarnings(
+    itemId: string,
+    data: { status: DoctorPaymentStatus; paidAt?: Date | null; failureReason?: string | null },
+  ): Promise<number>;
+  releaseBatch(batchId: string): Promise<void>;
+  countUnpaidItems(batchId: string): Promise<number>;
+  listItemsInFlight(cutoff: Date, limit?: number): Promise<PayoutItem[]>;
+  listItemsForDoctor(doctorId: string, limit?: number): Promise<PayoutItem[]>;
+}
+
 export interface DoctorPaymentRepoPort {
   createIfMissing(input: CreateAccrualInput): Promise<DoctorPayment | null>;
+  totalsByStatus(doctorId: string): Promise<Record<DoctorPaymentStatus, number>>;
   listForDoctor(
     doctorId: string,
     query: { page: number; pageSize: number },
@@ -353,6 +402,7 @@ export interface AppDeps {
   paymentsRepo: PaymentRepoPort;
   doctorPayments: DoctorPaymentRepoPort;
   feeSettings: FeeSettingsRepoPort;
+  payouts: PayoutRepoPort;
   mobileMoney: MobileMoneyPort;
   storage: StoragePort;
   video: VideoPort;

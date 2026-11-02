@@ -1,4 +1,4 @@
-import type { DoctorPayment, Payment } from '@prisma/client';
+import type { DoctorPayment, DoctorPaymentStatus, Payment } from '@prisma/client';
 import { prisma } from '../client.js';
 
 /** The patient payment's frozen fee breakdown, shown next to each earning. */
@@ -52,6 +52,27 @@ export const doctorPaymentRepository = {
         periodEnd: input.periodEnd,
       },
     });
+  },
+
+  /**
+   * All-time totals per status for one doctor — computed in the database over
+   * EVERY row, never from the page on screen.
+   */
+  async totalsByStatus(doctorId: string): Promise<Record<DoctorPaymentStatus, number>> {
+    const groups = await prisma.doctorPayment.groupBy({
+      by: ['status'],
+      where: { doctorId },
+      _sum: { amountTzs: true },
+    });
+    const totals: Record<DoctorPaymentStatus, number> = {
+      PENDING: 0,
+      PROCESSING: 0,
+      PAID: 0,
+      FAILED: 0,
+      REVERSED: 0,
+    };
+    for (const group of groups) totals[group.status] = group._sum.amountTzs ?? 0;
+    return totals;
   },
 
   async listForDoctor(

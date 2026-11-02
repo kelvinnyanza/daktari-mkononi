@@ -49,6 +49,9 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
     await db.ensureBookingSlotIndex();
 
     await db.prisma.doctorPayment.deleteMany({});
+    await db.prisma.payoutItem.deleteMany({});
+    await db.prisma.payoutBatch.deleteMany({});
+    await db.prisma.doctorPayoutAccount.deleteMany({});
     await db.prisma.payment.deleteMany({});
     await db.prisma.consultationRating.deleteMany({});
     await db.prisma.consultationMessage.deleteMany({});
@@ -88,6 +91,7 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
         paymentsRepo: db.paymentRepository,
         doctorPayments: db.doctorPaymentRepository,
         feeSettings: db.feeSettingsRepository,
+        payouts: db.payoutRepository,
         mobileMoney: fakePayments,
         storage: new FakeStorage(),
         video: new FakeVideo(),
@@ -919,9 +923,79 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
       where: { reference: `consultation:${started.id}` },
     });
     expect(accrual.doctorId).toBe(doctorId);
-    expect(accrual.status).toBe('PENDING'); // payout execution is a later phase
+    expect(accrual.status).toBe('PENDING'); // owed until a payout run pays it
     expect(accrual.amountTzs).toBe(calculateFees(FEE, DEFAULT_FEE_RATES).doctorAmountTzs);
     expect(accrual.amountTzs + paymentRow.platformFeeTzs + paymentRow.vatTzs).toBe(FEE); // exact integer split
     expect(accrual.paymentId).toBe(paymentRow.id);
+  });
+
+  it('payout run on Postgres: earnings reserved once (guarded), approved, disbursed, PAID', async () => {
+    const doctorUser = await db.prisma.user.create({
+      data: {
+        phone: '+255700009601',
+        passwordHash: 'x',
+        fullName: 'Dr Neema Kileo',
+        role: 'DOCTOR',
+        phoneVerifiedAt: new Date(),
+        doctor: {
+          create: {
+            tmcRegistrationNumber: 'TMC/REG/77006',
+            specialty: 'GENERAL_PRACTICE',
+            yearsOfExperience: 4,
+            consultationFeeTzs: 15_000,
+            verificationStatus: 'APPROVED',
+            verifiedAt: new Date(),
+          },
+        },
+      },
+      include: { doctor: true },
+    });
+    const doctorId = doctorUser.doctor!.id;
+    const earned = new Date(Date.now() - 3 * 24 * 3_600_000);
+    for (const [index, amountTzs] of [11_460, 15_280, -1_000].entries()) {
+      await db.prisma.doctorPayment.create({
+        data: {
+          doctorId,
+          amountTzs,
+          reference: `payout-it:${index}`,
+          kind: amountTzs < 0 ? 'ADJUSTMENT' : 'EARNING',
+          periodStart: earned,
+          periodEnd: earned,
+          createdAt: earned,
+        },
+      });
+    }
+    fakePayments.accountNames.set('+255682000601', 'NEEMA KILEO');
+    await services.payouts.setMyAccount(doctorUser.id, {
+      type: 'MOBILE_MONEY',
+      operator: 'AIRTEL_MONEY',
+      accountNumber: '+255682000601',
+    });
+    await services.payouts.confirmMyAccount(doctorUser.id, 'Neema Kileo');
+
+    const adminUser = await db.prisma.user.create({
+      data: { phone: '+255700009602', passwordHash: 'x', fullName: 'Admin', role: 'PLATFORM_ADMIN' },
+    });
+    const draft = await services.payouts.createRun(adminUser.id, undefined, 'integration');
+    expect(draft).toMatchObject({ status: 'DRAFT', totalTzs: 25_740, itemCount: 1 });
+    // Concurrent / repeated runs cannot reserve the same earnings again.
+    await expect(services.payouts.createRun(adminUser.id, undefined, 'again')).rejects.toMatchObject({
+      code: 'NOTHING_TO_PAY',
+    });
+
+    const approved = await services.payouts.approveRun(adminUser.id, draft.id);
+    const item = approved.items[0]!;
+    expect(item.status).toBe('PROCESSING');
+    fakePayments.setProviderStatus(item.providerReference!, 'COMPLETED');
+    await db.prisma.payoutItem.update({
+      where: { id: item.id },
+      data: { updatedAt: new Date(Date.now() - 5 * 60_000) },
+    });
+    expect(await services.payouts.reconcilePayouts()).toBe(1);
+
+    const rows = await db.prisma.doctorPayment.findMany({ where: { doctorId } });
+    expect(rows.every((row) => row.status === 'PAID' && row.payoutItemId === item.id)).toBe(true);
+    const batch = await db.prisma.payoutBatch.findUniqueOrThrow({ where: { id: draft.id } });
+    expect(batch.status).toBe('COMPLETED');
   });
 });

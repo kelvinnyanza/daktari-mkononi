@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { paginationSchema } from './common.js';
+import { paginationSchema, tzPhoneSchema } from './common.js';
 
 export const paymentStatusSchema = z.enum([
   'PENDING',
@@ -76,3 +76,51 @@ export const feePreviewQuerySchema = z.object({
   doctorId: z.string().min(1).optional(),
 });
 export type FeePreviewQuery = z.infer<typeof feePreviewQuerySchema>;
+
+// ── Doctor payouts (Phase 13a) ───────────────────────────────────────────────
+
+export const payoutOperatorSchema = z.enum(['MPESA', 'TIGO_PESA', 'AIRTEL_MONEY', 'HALOPESA', 'AZAMPESA']);
+
+/** PUT /api/v1/doctors/me/payout-account — any change resets verification. */
+export const payoutAccountSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('MOBILE_MONEY'),
+    operator: payoutOperatorSchema,
+    accountNumber: tzPhoneSchema,
+  }),
+  z.object({
+    type: z.literal('BANK'),
+    bankName: z.string().trim().min(2).max(80),
+    accountNumber: z
+      .string()
+      .trim()
+      .regex(/^[0-9A-Za-z-]{6,30}$/, 'bank account number: 6–30 letters, digits or dashes'),
+    accountName: z.string().trim().min(3).max(120),
+  }),
+]);
+export type PayoutAccountInput = z.infer<typeof payoutAccountSchema>;
+
+/** POST /api/v1/doctors/me/payout-account/confirm — the doctor confirms the looked-up name. */
+export const confirmPayoutAccountSchema = z.object({
+  confirmedName: z.string().trim().min(1).max(160),
+});
+
+/** POST /api/v1/admin/payout-accounts/:id/verify — manual verification (audited). */
+export const adminVerifyPayoutAccountSchema = z.object({
+  note: z.string().trim().min(3).max(500),
+});
+
+/** GET /api/v1/admin/payouts/preview?cutoff= and POST /api/v1/admin/payouts */
+export const payoutPreviewQuerySchema = z.object({
+  cutoff: z.coerce.date().optional(),
+});
+export const createPayoutRunSchema = z.object({
+  cutoff: z.coerce.date().optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
+/** POST /api/v1/admin/payouts/items/:id/mark-paid — paid outside AzamPay (audited). */
+export const markPayoutPaidSchema = z.object({
+  reference: z.string().trim().min(3).max(120),
+  note: z.string().trim().min(3).max(500),
+});

@@ -185,10 +185,49 @@ enum VatMode {
 }
 
 enum DoctorPaymentStatus {
-  PENDING
-  PROCESSING
+  PENDING // owed, not yet in an approved payout
+  PROCESSING // in an approved payout, disbursement in flight
   PAID
-  FAILED
+  FAILED // payout failed (reason on the row); retried via the payout item
+  REVERSED // refunded before payout — never paid (Phase 13a)
+}
+
+enum DoctorPaymentKind {
+  EARNING // doctor share of a completed consultation
+  ADJUSTMENT // negative correction (refund after payout) netted in the next payout
+}
+
+enum PayoutAccountType {
+  MOBILE_MONEY
+  BANK
+}
+
+enum PayoutOperator {
+  MPESA
+  TIGO_PESA
+  AIRTEL_MONEY
+  HALOPESA
+  AZAMPESA
+}
+
+enum PayoutAccountStatus {
+  NAME_PENDING_CONFIRMATION // AzamPay returned a name; the doctor must confirm it
+  LOOKUP_FAILED // AzamPay could not confirm the holder → an admin verifies manually
+  VERIFIED // doctor confirmed the looked-up name (or an admin verified)
+}
+
+enum PayoutBatchStatus {
+  DRAFT // earnings reserved, nothing sent
+  PROCESSING // approved; disbursements in flight / some failed
+  COMPLETED // every item PAID
+  CANCELLED // draft discarded, earnings released
+}
+
+enum PayoutItemStatus {
+  PENDING // in a draft
+  PROCESSING // disbursement sent (or outcome unknown) — never resent blind
+  PAID
+  FAILED // definitive failure / unsupported destination → retry or pay manually
 }
 
 enum DeliveryStatus {
@@ -389,6 +428,8 @@ model Doctor {
   consultations  Consultation[]
   prescriptions  Prescription[]
   doctorPayments DoctorPayment[]
+  payoutAccount  DoctorPayoutAccount?
+  payoutItems    PayoutItem[]
   ratings        ConsultationRating[]
 
   @@index([specialty, verificationStatus])
@@ -829,6 +870,12 @@ model DoctorPayment {
   // The patient payment this earning came from (fee / commission / VAT breakdown).
   paymentId   String?
   payment     Payment?            @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  kind        DoctorPaymentKind   @default(EARNING)
+  note        String?
+  failureReason String?
+  // Reserved by a payout run; never claimed twice (guarded updateMany on null).
+  payoutItemId String?
+  payoutItem   PayoutItem?        @relation(fields: [payoutItemId], references: [id], onDelete: Restrict)
   periodStart DateTime
   periodEnd   DateTime
   status      DoctorPaymentStatus @default(PENDING)
@@ -839,6 +886,71 @@ model DoctorPayment {
 
   @@index([doctorId, periodStart])
   @@index([doctorId, status])
+  @@index([payoutItemId])
+}
+
+// Where a doctor is paid. One per doctor; any change resets verification
+// (AzamPay name lookup → doctor confirms the name, or admin verifies) and is
+// audited (PAYOUT_ACCOUNT_CHANGED). Payout items snapshot it at send time.
+model DoctorPayoutAccount {
+  id               String              @id @default(cuid())
+  doctorId         String              @unique
+  doctor           Doctor              @relation(fields: [doctorId], references: [id], onDelete: Restrict)
+  type             PayoutAccountType
+  operator         PayoutOperator? // MOBILE_MONEY
+  bankName         String? // BANK
+  accountNumber    String // +255XXXXXXXXX for mobile money
+  accountName      String? // holder name the doctor typed (bank)
+  lookupName       String? // holder name AzamPay returned
+  status           PayoutAccountStatus
+  verifiedAt       DateTime?
+  verifiedByUserId String? // set when an admin verified manually
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model PayoutBatch {
+  id               String            @id @default(cuid())
+  status           PayoutBatchStatus @default(DRAFT)
+  cutoff           DateTime // earnings created before this are included
+  totalTzs         Int               @default(0)
+  itemCount        Int               @default(0)
+  note             String?
+  createdByUserId  String
+  approvedByUserId String?
+  approvedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  items            PayoutItem[]
+
+  @@index([status, createdAt])
+}
+
+model PayoutItem {
+  id                String           @id @default(cuid())
+  batchId           String
+  batch             PayoutBatch      @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  doctorId          String
+  doctor            Doctor           @relation(fields: [doctorId], references: [id], onDelete: Restrict)
+  amountTzs         Int // net of the reserved earnings (adjustments included), > 0
+  status            PayoutItemStatus @default(PENDING)
+  attempt           Int              @default(0)
+  reference         String?          @unique // our disbursement reference p<attempt>-<itemId>
+  providerReference String? // AzamPay pgReferenceId
+  providerFeeTzs    Int?
+  failureReason     String?
+  method            String? // 'AZAMPAY' | 'MANUAL'
+  manualReference   String?
+  accountSnapshot   Json? // type / operator / bank / number / name at send time
+  paidAt            DateTime?
+  lastStatusCheckAt DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  earnings          DoctorPayment[]
+
+  @@unique([batchId, doctorId])
+  @@index([status, updatedAt])
+  @@index([providerReference])
 }
 
 // Platform fee settings, EFFECTIVE-DATED and insert-only: the row in force at

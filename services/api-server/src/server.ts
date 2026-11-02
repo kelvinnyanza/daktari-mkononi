@@ -16,6 +16,7 @@ import {
   doctorRepository,
   ensureBookingSlotIndex,
   feeSettingsRepository,
+  payoutRepository,
   medicalRecordRepository,
   otpRepository,
   patientRepository,
@@ -39,6 +40,7 @@ import { InMemoryPubSub } from './lib/pubsub.js';
 import { startExpirySweep } from './modules/appointments/appointment.service.js';
 import { startScreeningExpirySweep } from './modules/ai/screening.service.js';
 import { startPaymentReconciliation } from './modules/payments/payment.service.js';
+import { startPayoutReconciliation } from './modules/payouts/payout.service.js';
 
 function createSmsPort(env: Env): SmsPort {
   // Key present ⇒ real gateway (any environment, so staging can send for real).
@@ -164,6 +166,7 @@ async function main(): Promise<void> {
       paymentsRepo: paymentRepository,
       doctorPayments: doctorPaymentRepository,
       feeSettings: feeSettingsRepository,
+      payouts: payoutRepository,
       mobileMoney: createMobileMoney(env),
       storage,
       video: createVideo(env),
@@ -207,6 +210,11 @@ async function main(): Promise<void> {
     app.log.error({ err: error }, 'payment reconciliation failed');
   });
 
+  // Doctor payout disbursements in flight get a provider status query.
+  const stopPayoutReconciliation = startPayoutReconciliation(services.payouts, 60_000, (error) => {
+    app.log.error({ err: error }, 'payout reconciliation failed');
+  });
+
   const port = Number(new URL(env.API_URL).port || 4000);
   // Production keeps its IPv4 wildcard bind. Development binds the dual-stack
   // wildcard '::' (ipv6Only off by default), which accepts IPv4 *and* IPv6:
@@ -226,6 +234,7 @@ async function main(): Promise<void> {
         stopExpirySweep();
         stopScreeningSweep();
         stopReconciliation();
+        stopPayoutReconciliation();
         await app.close(); // stop accepting, wait for in-flight requests
         await prisma.$disconnect();
         redis?.disconnect();

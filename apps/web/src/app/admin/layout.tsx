@@ -8,6 +8,7 @@ const NAV: NavItem[] = [
   { href: '/admin/verification', labelKey: 'admin.nav.verification' },
   { href: '/admin/payments', labelKey: 'admin.nav.payments' },
   { href: '/admin/fees', labelKey: 'admin.nav.fees' },
+  { href: '/admin/payouts', labelKey: 'admin.nav.payouts' },
   { href: '/admin/ai-usage', labelKey: 'admin.nav.aiUsage' },
   { href: '/admin/doctors', labelKey: 'admin.nav.doctors' },
   { href: '/admin/patients', labelKey: 'admin.nav.patients' },
