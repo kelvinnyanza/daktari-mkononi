@@ -13,11 +13,11 @@ import type { PaymentService } from './payment.service.js';
  * comes from AzamPay's RSA signature AND from confirming with AzamPay itself.
  *
  * Checkout callbacks (AzamPay CallbackRequest: utilityref,
- * transactionstatus, …, signature) are signature-checked against the public
- * key AzamPay serves; a PRESENT-but-invalid signature is refused 401
- * (audited). Every accepted callback is then confirmed with a status query
- * before anything is applied (see PaymentService.handleCheckoutCallback) —
- * unsigned callbacks only ever nudge that status check.
+ * transactionstatus, …, signature) are signature-checked against the
+ * configured public key (env, never fetched); a PRESENT-but-invalid signature
+ * is refused 401 (audited). Every accepted callback is then checked with a
+ * best-effort status query (see PaymentService.handleCheckoutCallback) —
+ * unsigned callbacks never apply on their own.
  *
  * Disbursement callbacks (payouts, refunds) carry no documented signature, so
  * their bodies are never trusted; they only trigger a status query.

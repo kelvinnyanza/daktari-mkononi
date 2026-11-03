@@ -30,7 +30,7 @@ import {
   userRepository,
 } from '@daktari/db';
 import { createAiProvider } from '@daktari/ai';
-import { AzamPayProvider, FakePayments, type MobileMoneyPort } from '@daktari/payments';
+import { AzamPayProvider, FakePayments, type AzamPayRequestEvent, type MobileMoneyPort } from '@daktari/payments';
 import { AfricasTalkingSms, ConsoleSms, type SmsPort } from '@daktari/notifications';
 import { LocalDiskStorage, S3Storage, type StoragePort } from '@daktari/storage';
 import { DailyCoVideo, FakeVideo, type VideoPort } from '@daktari/video';
@@ -76,8 +76,12 @@ function createStorage(env: Env): { storage: StoragePort; localFiles: LocalFileR
   return { storage: local, localFiles: (key) => local.read(key) };
 }
 
-function createMobileMoney(env: Env): MobileMoneyPort {
+function createMobileMoney(
+  env: Env,
+  onRequest: (event: AzamPayRequestEvent) => void,
+): MobileMoneyPort {
   if (env.AZAMPAY_CLIENT_ID !== undefined && env.AZAMPAY_CLIENT_SECRET !== undefined) {
+    const callbackKey = env.AZAMPAY_CALLBACK_PUBLIC_KEY ?? env.AZAMPAY_CHECKSUM_PUBLIC_KEY;
     return new AzamPayProvider({
       appName: env.AZAMPAY_APP_NAME,
       clientId: env.AZAMPAY_CLIENT_ID,
@@ -90,9 +94,15 @@ function createMobileMoney(env: Env): MobileMoneyPort {
       ...(env.AZAMPAY_DISBURSEMENT_BASE_URL !== undefined
         ? { disbursementBaseUrl: env.AZAMPAY_DISBURSEMENT_BASE_URL }
         : {}),
+      ...(env.AZAMPAY_DISBURSEMENT_AUTH_BASE_URL !== undefined
+        ? { disbursementAuthBaseUrl: env.AZAMPAY_DISBURSEMENT_AUTH_BASE_URL }
+        : {}),
       ...(env.AZAMPAY_CHECKSUM_PUBLIC_KEY !== undefined
         ? { checksumPublicKeyPem: env.AZAMPAY_CHECKSUM_PUBLIC_KEY }
         : {}),
+      ...(callbackKey !== undefined ? { callbackPublicKeyPem: callbackKey } : {}),
+      checkoutStatusQuery: env.AZAMPAY_CHECKOUT_STATUS_QUERY === 'on',
+      onRequest,
       ...(env.AZAMPAY_DISBURSE_SOURCE_ACCOUNT !== undefined &&
       env.AZAMPAY_DISBURSE_SOURCE_NAME !== undefined &&
       env.AZAMPAY_DISBURSE_SOURCE_BANK !== undefined
@@ -148,6 +158,11 @@ async function main(): Promise<void> {
     production: env.NODE_ENV === 'production',
   });
 
+  // AzamPay request log: bound once the Fastify logger exists. Host + path +
+  // status only — the provider never hands this sink headers or bodies.
+  let logAzamPay: ((event: AzamPayRequestEvent) => void) | null = null;
+  const mobileMoney = createMobileMoney(env, (event) => logAzamPay?.(event));
+
   const { app, services } = await buildAppWithServices({
     deps: {
       users: userRepository,
@@ -169,7 +184,7 @@ async function main(): Promise<void> {
       feeSettings: feeSettingsRepository,
       payouts: payoutRepository,
       finance: financeRepository,
-      mobileMoney: createMobileMoney(env),
+      mobileMoney,
       storage,
       video: createVideo(env),
       pubsub: new InMemoryPubSub(), // single-instance broadcast; Redis at Phase 11
@@ -191,6 +206,24 @@ async function main(): Promise<void> {
     },
     redis,
   });
+
+  logAzamPay = (event) => {
+    if (event.outcome === 'ok') app.log.debug({ azampay: event }, 'azampay request');
+    else app.log.warn({ azampay: event }, 'azampay request failed');
+  };
+  if (mobileMoney instanceof AzamPayProvider) {
+    app.log.info(
+      {
+        azampayEnv: env.AZAMPAY_ENV,
+        hosts: mobileMoney.hosts,
+        callbackSignatureKey: mobileMoney.callbackKeyConfigured ? 'configured' : 'NOT SET (callbacks treated as unsigned)',
+        checkoutStatusQuery: env.AZAMPAY_CHECKOUT_STATUS_QUERY,
+      },
+      'AzamPay provider',
+    );
+  } else {
+    app.log.info('payments: FakePayments (no AZAMPAY_* credentials)');
+  }
 
   app.log.info(
     ai === null

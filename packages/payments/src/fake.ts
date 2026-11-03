@@ -15,6 +15,7 @@ import {
   type QueryStatusResult,
   type RefundInput,
   type RefundResult,
+  type StatusHint,
 } from './port.js';
 
 /**
@@ -59,11 +60,11 @@ export class FakePayments implements MobileMoneyPort {
   readonly providerStatuses = new Map<string, ScriptedStatus>();
   /** MSISDN / account → holder name returned by nameLookup (missing ⇒ not found). */
   readonly accountNames = new Map<string, string>();
-  /** The PEM a test would "fetch" from /azampay/v1/public-key. */
+  /** The PEM a test would configure as AZAMPAY_CALLBACK_PUBLIC_KEY. */
   get publicKeyPem(): string {
     return fakeKeys().publicKey.export({ type: 'spki', format: 'pem' }).toString();
   }
-  /** Set to simulate the public-key fetch failing. */
+  /** Set to simulate no callback public key being configured. */
   publicKeyUnavailable = false;
 
   nextCollectionFails(): this {
@@ -122,7 +123,20 @@ export class FakePayments implements MobileMoneyPort {
     return Promise.resolve({ providerReference, status: 'PENDING' });
   }
 
-  queryStatus(providerReference: string): Promise<QueryStatusResult> {
+  /** Simulates AZAMPAY_CHECKOUT_STATUS_QUERY=off: checkout status answers NOT_SUPPORTED. */
+  checkoutStatusUnsupported = false;
+  /** Hints passed to queryStatus (e.g. the webhook's fast flag). */
+  readonly statusHints: Array<StatusHint | undefined> = [];
+
+  queryStatus(providerReference: string, hint?: StatusHint): Promise<QueryStatusResult> {
+    this.statusHints.push(hint);
+    if (this.checkoutStatusUnsupported) {
+      return Promise.reject(new MobileMoneyError('NOT_SUPPORTED', 'checkout status query is off'));
+    }
+    return this.lookupStatus(providerReference);
+  }
+
+  private lookupStatus(providerReference: string): Promise<QueryStatusResult> {
     this.statusQueries.push(providerReference);
     const entry = this.providerStatuses.get(providerReference);
     if (!entry) {
@@ -146,7 +160,7 @@ export class FakePayments implements MobileMoneyPort {
   }
 
   queryRefundStatus(refundReference: string): Promise<QueryStatusResult> {
-    return this.queryStatus(refundReference);
+    return this.lookupStatus(refundReference);
   }
 
   disburse(input: DisburseInput): Promise<DisburseResult> {
@@ -160,7 +174,7 @@ export class FakePayments implements MobileMoneyPort {
   }
 
   queryDisbursementStatus(providerReference: string): Promise<QueryStatusResult> {
-    return this.queryStatus(providerReference);
+    return this.lookupStatus(providerReference);
   }
 
   nameLookup(input: NameLookupInput): Promise<NameLookupResult> {

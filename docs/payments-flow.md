@@ -32,13 +32,42 @@ arrive — see "Open items" at the end.
    (every minute, for payments in flight longer than 90 seconds). Both paths
    run the same code. Trust rules for the callback:
    - AzamPay signs callbacks with an RSA key; we verify the signature with the
-     public key AzamPay publishes. A **present but invalid** signature is
-     rejected.
-   - Even a valid callback is **double-checked with AzamPay's status API**
-     before we act. If they disagree, nothing is applied and admins are
-     alerted (`STATUS_CONFLICT`).
-   - An **unsigned** callback is never acted on by itself; it only triggers a
-     status check.
+     public key **we hold in configuration** (`AZAMPAY_CHECKSUM_PUBLIC_KEY`, or
+     `AZAMPAY_CALLBACK_PUBLIC_KEY` if AzamPay issues a separate one). We never
+     download it — the documented download address does not exist on the
+     sandbox. A **present but invalid** signature is rejected. No key
+     configured ⇒ every callback counts as unsigned (production refuses to
+     start without one).
+   - A valid callback is **also checked against AzamPay's status API when that
+     answers** (see "No checkout status API" below). If they disagree,
+     nothing is applied and admins are alerted (`STATUS_CONFLICT`). If the
+     status API cannot answer, the valid signature alone is enough.
+   - An **unsigned** (or two-field "refs-only") callback is never acted on by
+     itself; the payment waits for the status check or the statement.
+
+### No checkout status API (found in sandbox testing, 13b)
+
+AzamPay documents **no** way to ask about a *checkout* payment. Its only
+status endpoint (`GET /api/v1/azampay/transactionstatus`) is described as the
+status of a *disbursement*. We still ask it (best-effort,
+`AZAMPAY_CHECKOUT_STATUS_QUERY=on`): "not found" counts as still pending, so
+asking cannot harm a payment. With `off`, we never ask.
+
+What a patient's payment rests on, in order:
+
+1. **The signed callback** — the primary signal. Requires the public key.
+2. **The status API** — an extra confirmation, only if it turns out to know
+   checkout transactions (the sandbox test reports this).
+3. **Statement reconciliation** (Finance reports → import AzamPay statement) —
+   the backstop for lost or unsigned callbacks. A payment still in flight
+   after 24 hours is flagged `STUCK_PROCESSING` for an admin.
+
+Options if AzamPay confirms the status API cannot see checkouts: (a) keep
+the above, with statement import as the daily routine — the safe default
+needs no code change; (b) ask AzamPay for a checkout status endpoint or a
+signed callback re-send; (c) use the hosted Checkout Pages flow instead of
+MNO push, if its redirect carries a verifiable result. We recommend (a) now
+and (b) in parallel.
 4. **Amount check.** If AzamPay reports a different amount from the fee owed
    (or an unreadable one), the money is recorded as received but the
    appointment is **not** confirmed, nothing is refunded automatically, and
@@ -211,21 +240,55 @@ so this is an upload.)
 
 ## 8. Open items
 
-**Cannot be verified without AzamPay sandbox access** (built to the published
-docs, which contradict themselves in places):
+**Sandbox findings (2026-11-03, `pnpm azampay:sandbox-test`):**
+
+- Token and MNO checkout work (`authenticator-sandbox` / `sandbox` hosts).
+- The spec's disbursement sandbox host `api-disbursement-sandbox.azampay.co.tz`
+  accepts the TLS connection and then **resets every request** (any path,
+  with or without a token). The live sandbox disbursement API is
+  `api-disbursement-test.azampay.co.tz` — now our default — but it answers
+  **401** to tokens from `authenticator-sandbox`, and our credentials are
+  not registered on `authenticator-test`. **Ask AzamPay** which authenticator
+  issues disbursement-sandbox tokens for our app, or to enable disbursement on
+  it; then set `AZAMPAY_DISBURSEMENT_AUTH_BASE_URL` if needed.
+- `GET /azampay/v1/public-key` is 404 on the sandbox (it exists on the
+  production checkout host). The key is configuration now.
+
+**Still to confirm with AzamPay:**
 
 1. The callback signature: the docs describe it over four fields in one place
    and two fields in another. We accept the four-field form; the two-field
-   form is treated as unsigned (status-checked).
-2. Whether the documented status endpoint (written for disbursements) also
-   answers for checkout transactions, and the shape of its `data` field.
+   form is treated as unsigned.
+2. Whether the status endpoint (documented for disbursements) also answers
+   for checkout transactions, and the shape of its `data` field.
 3. The disbursement `checksum` input fields ("contact us" in the docs) and the
    `transferDetails.type` value for mobile money.
 4. Production host names (the docs list sandbox hosts only).
 5. Whether AzamPay reports its fee anywhere other than statements.
 6. The statement CSV layout (the importer recognises columns by name).
+7. The RSA public key(s): one for checksums, and whether callbacks are signed
+   with the same key.
 
 **Run:** fill the sandbox variables in `.env`, then `pnpm azampay:sandbox-test`.
+It reports each step (token, public key, checkout, status, name lookup,
+disbursement) separately and prints the exact host of every request.
+
+### Testing callbacks
+
+AzamPay cannot reach `localhost`, so callbacks are not part of the local
+sandbox test. Two ways to test them later:
+
+- **Staging (Phase 14, preferred):** register
+  `https://<staging-api>/api/v1/webhooks/azampay` as the sandbox callback URL
+  with AzamPay, run a sandbox checkout, and confirm the audit log shows the
+  callback with `signature: valid` and the payment `COMPLETED`.
+- **Temporary tunnel (only if staging is late):** expose the local API with a
+  tunnel (e.g. `cloudflared tunnel --url http://localhost:4000`), give AzamPay
+  the tunnel URL for the sandbox app only, and tear it down afterwards. Never
+  point a production app at a tunnel.
+
+Until then, the signed-callback path is covered by unit and integration tests
+with a generated key pair.
 
 ---
 
@@ -235,7 +298,7 @@ docs, which contradict themselves in places):
 |---|---|
 | Fee calculation, rounding, limits | `packages/payments/src/money.ts` (`calculateFees`) |
 | Fee settings (effective-dated, overrides) | `services/api-server/src/modules/payments/fee-settings.service.ts`, `FeeSettings` model |
-| AzamPay adapter (checkout, status, signature, disbursement, name lookup, refund-as-disbursement, timeouts) | `packages/payments/src/azampay.ts` |
+| AzamPay adapter (hosts, checkout, status, signature, disbursement, name lookup, refund-as-disbursement, timeouts, request logging) | `packages/payments/src/azampay.ts` |
 | AzamPay spec snapshot | `docs/vendor/azampay-tanzania-v1-openapi.json` |
 | Payment lifecycle, late/orphan handling, review queue, refunds, reconciliation sweep | `services/api-server/src/modules/payments/payment.service.ts` |
 | Webhook route (checkout + disbursement callbacks) | `services/api-server/src/modules/payments/webhook.routes.ts` |

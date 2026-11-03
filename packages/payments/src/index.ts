@@ -40,6 +40,7 @@ export {
   azamPayChecksum,
   azamPayDisburseBankName,
   azamPayDisbursementCallbackSchema,
+  isRsaPublicKeyPem,
   mapAzamPayStatus,
   parseAzamPayAmount,
   verifyAzamPayRsaSignature,
@@ -49,6 +50,7 @@ export type {
   AzamPayDisbursementCallbackBody,
   AzamPayDisbursementSource,
   AzamPayOptions,
+  AzamPayRequestEvent,
   AzamPayTimeouts,
 } from './azampay.js';
 export { FakePayments } from './fake.js';

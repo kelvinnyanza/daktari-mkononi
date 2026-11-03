@@ -36,6 +36,8 @@ export interface StatusHint {
   phoneE164?: string | null;
   /** Explicit AzamPay bankName, when known (payouts). */
   bankName?: string;
+  /** Webhook path: one attempt, short deadline (never hold the provider's callback open). */
+  fast?: boolean;
 }
 
 export interface QueryStatusResult {
@@ -46,6 +48,8 @@ export interface QueryStatusResult {
   amountTzs?: number;
   /** AzamPay's own charge, when its answer carries one. */
   providerFeeTzs?: number;
+  /** Provider's message on a non-final answer ("not found", …) — diagnostics only. */
+  providerMessage?: string;
 }
 
 export interface RefundInput {
@@ -123,7 +127,7 @@ export interface CheckoutCallbackSignedFields {
  *               other wording): binds the references, NOT the status
  * absent      — no signature field
  * invalid     — present, verifies over neither form
- * unverifiable— the public key could not be obtained right now
+ * unverifiable— no callback public key is configured (treated as unsigned)
  */
 export type CallbackSignatureCheck = 'valid' | 'refs-only' | 'absent' | 'invalid' | 'unverifiable';
 
@@ -136,6 +140,8 @@ export type CallbackSignatureCheck = 'valid' | 'refs-only' | 'absent' | 'invalid
  * callback or statement.
  * UNSUPPORTED_DESTINATION — AzamPay's disbursement API cannot pay this
  * operator / bank (it lists tigo, airtel, azampesa only): pay manually.
+ * NOT_SUPPORTED — the provider has no way to answer this (e.g. checkout
+ * status with AZAMPAY_CHECKOUT_STATUS_QUERY=off): settle by callback or statement.
  */
 export type MobileMoneyErrorCode =
   | 'PROVIDER_UNAVAILABLE'
@@ -143,7 +149,8 @@ export type MobileMoneyErrorCode =
   | 'INVALID_MSISDN'
   | 'INSUFFICIENT_FUNDS_HINT'
   | 'UNSUPPORTED_DESTINATION'
-  | 'NOT_CONFIGURED';
+  | 'NOT_CONFIGURED'
+  | 'NOT_SUPPORTED';
 
 export class MobileMoneyError extends Error {
   constructor(

@@ -394,6 +394,20 @@ describe('webhook route (AzamPay RSA signature + status confirmation over HTTP)'
     await app.close();
   });
 
+  it('no checkout status API (NOT_SUPPORTED): a validly signed callback applies alone, an unsigned one defers', async () => {
+    const { app, booked, reference } = await appWithPaidSetup();
+    deps.mobileMoney.checkoutStatusUnsupported = true;
+    const unsigned = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success', { signature: null }));
+    expect((await post(app, unsigned)).json().outcome).toBe('deferred');
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
+    const signed = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success'));
+    expect((await post(app, signed)).json().outcome).toBe('applied');
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CONFIRMED');
+    // The webhook's status query is the fast, single-attempt kind.
+    expect(deps.mobileMoney.statusHints.every((hint) => hint?.fast === true)).toBe(true);
+    await app.close();
+  });
+
   it('UNSIGNED callback is never applied on its own: deferred while the status API says pending', async () => {
     const { app, booked, reference } = await appWithPaidSetup();
     const unsigned = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success', { signature: null }));

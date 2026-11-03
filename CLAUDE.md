@@ -62,12 +62,19 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
   provider to retry. Consultation COMPLETED creates a PENDING `DoctorPayment`
   from `doctorAmountTzs` (reference `consultation:<id>`, one per
   consultation).
-- **AzamPay trust model (13a):** built to AzamPay's published OpenAPI
-  (`docs/vendor/`). Callbacks carry an RSA-SHA256 signature verified with the
-  key from `GET /azampay/v1/public-key` (no HMAC, no webhook secret); a valid
-  callback is still **confirmed with a status query** before anything is
-  applied, unsigned callbacks only trigger that query, and a signed-vs-status
-  disagreement is flagged, never applied. Disbursement callbacks are never
+- **AzamPay trust model (13a, revised 13b):** built to AzamPay's published
+  OpenAPI (`docs/vendor/`). Callbacks carry an RSA-SHA256 signature verified
+  with a key **from env** (`AZAMPAY_CALLBACK_PUBLIC_KEY` ??
+  `AZAMPAY_CHECKSUM_PUBLIC_KEY`, parsed at env validation; never fetched — the
+  documented public-key endpoint 404s on the sandbox). No HMAC, no webhook
+  secret. AzamPay documents **no checkout status endpoint**: the
+  disbursement status API is asked best-effort (`AZAMPAY_CHECKOUT_STATUS_QUERY`,
+  one fast attempt inside a webhook); when it answers finally it wins, when it
+  cannot, a `valid` signature alone applies. Unsigned / refs-only callbacks
+  never apply on their own (status query or statement reconciliation), and a
+  signed-vs-status disagreement is flagged, never applied. Sandbox
+  disbursement host is `api-disbursement-test` (the spec's `-sandbox` host
+  resets connections). Disbursement callbacks are never
   trusted. A timeout / 5xx on a money-moving call is `OUTCOME_UNKNOWN`: never
   mark it failed, never resend it blind. A success for a non-payable
   appointment is a LATE_SUCCESS (no confirm, auto-refund, admin review);

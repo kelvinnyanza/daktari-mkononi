@@ -46,9 +46,13 @@ export function findProductionAdapterOffenders(env: Env): string[] {
   if (missing(env.AZAMPAY_APP_NAME)) offenders.push('AZAMPAY_APP_NAME');
   // Sandbox hosts in production would take real bookings against fake money.
   if (env.AZAMPAY_ENV !== 'production') offenders.push('AZAMPAY_ENV');
+  // The checksum key also verifies callback signatures (unless
+  // AZAMPAY_CALLBACK_PUBLIC_KEY overrides it). Missing ⇒ every callback is
+  // unsigned, so no payment confirms until reconciliation — and disbursements
+  // (payouts + refunds) go without a checksum.
+  if (missing(env.AZAMPAY_CHECKSUM_PUBLIC_KEY)) offenders.push('AZAMPAY_CHECKSUM_PUBLIC_KEY');
   // Disbursements (doctor payouts + refunds). Missing ⇒ every refund and
   // payout falls to the manual list.
-  if (missing(env.AZAMPAY_CHECKSUM_PUBLIC_KEY)) offenders.push('AZAMPAY_CHECKSUM_PUBLIC_KEY');
   if (missing(env.AZAMPAY_DISBURSE_SOURCE_ACCOUNT)) offenders.push('AZAMPAY_DISBURSE_SOURCE_ACCOUNT');
   if (missing(env.AZAMPAY_DISBURSE_SOURCE_NAME)) offenders.push('AZAMPAY_DISBURSE_SOURCE_NAME');
   if (missing(env.AZAMPAY_DISBURSE_SOURCE_BANK)) offenders.push('AZAMPAY_DISBURSE_SOURCE_BANK');

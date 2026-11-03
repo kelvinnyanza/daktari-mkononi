@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { generateKeyPairSync } from 'node:crypto';
 import { loadEnv } from '../src/env.js';
 
 /**
@@ -212,5 +213,34 @@ describe('loadEnv — AI provider selection', () => {
       loadEnv({ ...minimalEnv, AI_PROVIDER: 'anthropic', AI_MODEL: 'claude-opus-4-1' }).AI_MODEL,
     ).toBe('claude-opus-4-1');
     expect(() => loadEnv({ ...minimalEnv, AI_PROVIDER: 'fake', AI_MODEL: 'anything' })).not.toThrow();
+  });
+});
+
+describe('loadEnv — AzamPay public keys', () => {
+  const pem = generateKeyPairSync('rsa', { modulusLength: 2048 })
+    .publicKey.export({ type: 'spki', format: 'pem' })
+    .toString();
+
+  it('accepts a PEM, including one written on one line with literal \n', () => {
+    const oneLine = pem.trim().split('\n').join('\n');
+    const parsed = loadEnv({ ...minimalEnv, AZAMPAY_CHECKSUM_PUBLIC_KEY: oneLine });
+    expect(parsed.AZAMPAY_CHECKSUM_PUBLIC_KEY).toBe(pem.trim());
+    expect(loadEnv({ ...minimalEnv, AZAMPAY_CALLBACK_PUBLIC_KEY: pem }).AZAMPAY_CALLBACK_PUBLIC_KEY).toBe(pem);
+  });
+
+  it('rejects a value that is not an RSA public key (e.g. the portal UUID API key) and says so', () => {
+    for (const key of ['AZAMPAY_CHECKSUM_PUBLIC_KEY', 'AZAMPAY_CALLBACK_PUBLIC_KEY']) {
+      expect(() => loadEnv({ ...minimalEnv, [key]: '0f8fad5b-d9cb-469f-a165-70867728950e' })).toThrowError(
+        new RegExp(`${key}: must be an RSA public key in PEM`),
+      );
+    }
+  });
+
+  it('checkout status query defaults on and accepts only on/off', () => {
+    expect(loadEnv(minimalEnv).AZAMPAY_CHECKOUT_STATUS_QUERY).toBe('on');
+    expect(loadEnv({ ...minimalEnv, AZAMPAY_CHECKOUT_STATUS_QUERY: 'off' }).AZAMPAY_CHECKOUT_STATUS_QUERY).toBe('off');
+    expect(() => loadEnv({ ...minimalEnv, AZAMPAY_CHECKOUT_STATUS_QUERY: 'maybe' })).toThrowError(
+      /AZAMPAY_CHECKOUT_STATUS_QUERY/,
+    );
   });
 });

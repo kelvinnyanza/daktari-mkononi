@@ -1,4 +1,30 @@
+import { createPublicKey } from 'node:crypto';
 import { z } from 'zod';
+
+/**
+ * An RSA public key in PEM; literal "\n" sequences are accepted so it fits on
+ * one .env line. The key is PARSED, not pattern-matched: a wrong value (e.g.
+ * the AzamPay portal's UUID API key) would otherwise reject every real
+ * callback as forged and encrypt every checksum with garbage.
+ */
+const rsaPublicKeyPem = z
+  .string()
+  .min(1)
+  .transform((value) => value.replace(/\\n/g, '\n'))
+  .refine(
+    (pem) => {
+      try {
+        return createPublicKey(pem).asymmetricKeyType === 'rsa';
+      } catch {
+        return false;
+      }
+    },
+    {
+      message:
+        'must be an RSA public key in PEM (-----BEGIN PUBLIC KEY-----…, \\n for line breaks); ' +
+        'a UUID-shaped value is the AzamPay portal API key, not a public key',
+    },
+  );
 
 const postgresUrl = z
   .string()
@@ -91,18 +117,25 @@ export const envSchema = z.object({
   AZAMPAY_AUTH_BASE_URL: z.string().url().optional(),
   AZAMPAY_CHECKOUT_BASE_URL: z.string().url().optional(),
   AZAMPAY_DISBURSEMENT_BASE_URL: z.string().url().optional(),
+  // Authenticator for the disbursement host, when AzamPay issues its tokens
+  // separately (the sandbox api-disbursement-test host rejects tokens from
+  // authenticator-sandbox). Unset ⇒ the checkout authenticator.
+  AZAMPAY_DISBURSEMENT_AUTH_BASE_URL: z.string().url().optional(),
+  // AzamPay documents NO status endpoint for checkout payments. `on` asks the
+  // disbursement status API anyway (best-effort; "not found" ⇒ still
+  // pending). `off` settles checkouts on signed callbacks + statement
+  // reconciliation only.
+  AZAMPAY_CHECKOUT_STATUS_QUERY: z.enum(['on', 'off']).default('on'),
   // AZAMPAY_WEBHOOK_SECRET was removed (13a): AzamPay does not HMAC-sign
-  // callbacks — they carry an RSA signature verified with the public key
-  // AzamPay serves (GET /azampay/v1/public-key), and every callback is
-  // confirmed with a status query.
+  // callbacks — they carry an RSA signature. The verifying key is
+  // CONFIGURATION, never fetched (the documented GET /azampay/v1/public-key
+  // does not exist on the sandbox host). Required in production.
   // Disbursements (doctor payouts AND refunds — AzamPay has no refund API).
-  // PEM issued by AzamPay for the disbursement/name-lookup checksum; literal
-  // "\n" sequences are accepted so it fits on one .env line.
-  AZAMPAY_CHECKSUM_PUBLIC_KEY: z
-    .string()
-    .min(1)
-    .transform((value) => value.replace(/\\n/g, '\n'))
-    .optional(),
+  // PEM issued by AzamPay for the disbursement/name-lookup checksum — and the
+  // callback-signature key unless AZAMPAY_CALLBACK_PUBLIC_KEY is set.
+  AZAMPAY_CHECKSUM_PUBLIC_KEY: rsaPublicKeyPem.optional(),
+  // Only if AzamPay issues a SEPARATE key for callback signatures.
+  AZAMPAY_CALLBACK_PUBLIC_KEY: rsaPublicKeyPem.optional(),
   // The merchant disbursement float account AzamPay registered for you.
   AZAMPAY_DISBURSE_SOURCE_ACCOUNT: z.string().min(1).optional(),
   AZAMPAY_DISBURSE_SOURCE_NAME: z.string().min(1).optional(),

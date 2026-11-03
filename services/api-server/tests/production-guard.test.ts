@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { loadEnv, resetEnvCache } from '@daktari/config';
 import {
@@ -7,6 +8,11 @@ import {
 } from '../src/lib/production-guard.js';
 import { applyTestEnv } from './helpers/env.js';
 import { makeFakeDeps } from './helpers/fakes.js';
+
+/** A real RSA public key — env validation parses the PEM, so a placeholder no longer passes. */
+const TEST_PEM = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  .publicKey.export({ type: 'spki', format: 'pem' })
+  .toString();
 
 /** A fully-configured production env — every adapter real. */
 const prodEnv: Record<string, string> = {
@@ -29,7 +35,7 @@ const prodEnv: Record<string, string> = {
   AZAMPAY_CLIENT_ID: 'azam-id',
   AZAMPAY_CLIENT_SECRET: 'azam-secret',
   AZAMPAY_ENV: 'production',
-  AZAMPAY_CHECKSUM_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\\nMIIB\\n-----END PUBLIC KEY-----',
+  AZAMPAY_CHECKSUM_PUBLIC_KEY: TEST_PEM.trim().split('\n').join('\\n'), // one .env line, literal \n
   AZAMPAY_DISBURSE_SOURCE_ACCOUNT: '255650000000',
   AZAMPAY_DISBURSE_SOURCE_NAME: 'QGT Ltd',
   AZAMPAY_DISBURSE_SOURCE_BANK: 'tigo',
@@ -100,9 +106,7 @@ describe('production adapter guard', () => {
   });
 
   it('a PEM pasted on one .env line (literal \\n) is unescaped', () => {
-    expect(loadEnv(prodEnv).AZAMPAY_CHECKSUM_PUBLIC_KEY).toBe(
-      '-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----',
-    );
+    expect(loadEnv(prodEnv).AZAMPAY_CHECKSUM_PUBLIC_KEY).toBe(TEST_PEM.trim());
   });
 
   it('reports a single offender when only one is missing', () => {

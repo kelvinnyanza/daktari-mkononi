@@ -493,10 +493,12 @@ export class PaymentService implements PaymentPort {
    *
    *  1. Always ask AzamPay (status query) before trusting the callback. A
    *     final status answer is what gets applied — whatever the callback said.
-   *  2. Status not final yet / status API unavailable: only a callback whose
-   *     signature is 'valid' (covers the status field) is applied on its own.
-   *     Unsigned / refs-only / unverifiable callbacks are deferred — the
-   *     reconciliation sweep settles them from the status API.
+   *  2. Status not final yet / status API unavailable or switched off
+   *     (AzamPay documents no CHECKOUT status endpoint — the query is
+   *     best-effort): only a callback whose signature is 'valid' (covers the
+   *     status field) is applied on its own. Unsigned / refs-only /
+   *     unverifiable (no key configured) callbacks are deferred — the
+   *     reconciliation sweep or the AzamPay statement settles them.
    *  3. Signed callback and status answer DISAGREE: nothing is applied; the
    *     payment is flagged STATUS_CONFLICT for an admin.
    *
@@ -545,7 +547,7 @@ export class PaymentService implements PaymentPort {
     let confirmed: QueryStatusResult | null = null;
     if (providerReference !== null) {
       confirmed = await this.deps.mobileMoney
-        .queryStatus(providerReference, { phoneE164: payment.payerPhone })
+        .queryStatus(providerReference, { phoneE164: payment.payerPhone, fast: true })
         .catch(() => null);
     }
 
