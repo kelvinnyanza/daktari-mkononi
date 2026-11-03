@@ -111,6 +111,8 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
       },
       redis: null,
       logger: false,
+      // Slots are booked ahead on the real clock; let doctors start now.
+      settings: { consultationStartEarlyMs: 30 * 24 * 60 * 60_000 },
     });
     app = built.app;
     services = built.services;

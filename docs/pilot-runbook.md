@@ -302,6 +302,8 @@ portal's **Doctors** list. A patient can rate a consultation exactly once.
 | Booking returns 409 `SLOT_TAKEN` | The partial unique index did its job — the slot really was taken. |
 | Payment stuck `PROCESSING` | The dev flip was not run, or it was run against the wrong appointment. |
 | "Start consultation" missing | The appointment is not `CONFIRMED`/`CHECKED_IN`. |
+| "Start consultation" greyed out ("Can start from …") | It opens 15 minutes before the slot (`CONSULTATION_START_EARLY_MINUTES`). |
+| "Join video" joins but nothing works / account error | Run `pnpm smoke:check` — it joins a real Daily room headlessly and shows Daily's error (e.g. billing). |
 | Chat shows "Disconnected" | The WS ticket expired (30 s, single use) — it reconnects on its own; if it does not, the API restarted. |
 | Presence never shows the patient | The API is running as more than one instance; in-memory pub/sub does not cross processes. |
 | "Complete" disabled with notes written | Assessment or plan is under 3 characters. |

@@ -3,12 +3,12 @@ import { FakeVideo } from '../src/fake.js';
 import { DailyCoVideo } from '../src/daily.js';
 import { VideoNotConfiguredError } from '../src/port.js';
 
-const SCHEDULED_END = new Date('2026-07-20T07:00:00.000Z');
+const EXPIRES_AT = new Date('2026-07-20T08:00:00.000Z');
 
 describe('FakeVideo', () => {
   it('creates deterministic rooms and role-scoped tokens', async () => {
     const video = new FakeVideo();
-    const room = await video.createRoom('consult-1', { scheduledEnd: SCHEDULED_END });
+    const room = await video.createRoom('consult-1', { expiresAt: EXPIRES_AT });
     expect(room.roomId).toBe('fake-room-consult-1');
 
     const doctorToken = await video.createMeetingToken(room.roomId, {
@@ -34,7 +34,7 @@ describe('FakeVideo', () => {
 describe('DailyCoVideo', () => {
   it('throws VIDEO_NOT_CONFIGURED without an API key', async () => {
     const video = new DailyCoVideo({ apiKey: undefined });
-    await expect(video.createRoom('c1', { scheduledEnd: SCHEDULED_END })).rejects.toBeInstanceOf(
+    await expect(video.createRoom('c1', { expiresAt: EXPIRES_AT })).rejects.toBeInstanceOf(
       VideoNotConfiguredError,
     );
     await expect(
@@ -43,18 +43,18 @@ describe('DailyCoVideo', () => {
     await expect(video.endRoom('r1')).rejects.toMatchObject({ code: 'VIDEO_NOT_CONFIGURED' });
   });
 
-  it('creates private, 2-participant rooms expiring 2h after scheduled end', async () => {
+  it('creates private, 2-participant rooms that expire at expiresAt, pre-join screen off', async () => {
     const fetchImpl = vi.fn(async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
       expect(String(url)).toBe('https://api.daily.co/v1/rooms');
       const body = JSON.parse(String(init?.body)) as {
         privacy: string;
-        properties: { max_participants: number; exp: number; enable_recording: boolean };
+        properties: { max_participants: number; exp: number; enable_recording: boolean; enable_prejoin_ui: boolean };
       };
       expect(body.privacy).toBe('private');
       expect(body.properties.max_participants).toBe(2);
-      expect(body.properties.exp).toBe(
-        Math.floor(SCHEDULED_END.getTime() / 1000) + 2 * 60 * 60,
-      );
+      expect(body.properties.exp).toBe(Math.floor(EXPIRES_AT.getTime() / 1000));
+      // One click on "Join video" joins: the room overrides the domain's pre-join screen.
+      expect(body.properties.enable_prejoin_ui).toBe(false);
       expect(body.properties.enable_recording).toBe(false);
       return new Response(
         JSON.stringify({ id: 'uuid-1', name: 'consult-c1', url: 'https://x.daily.co/consult-c1' }),
@@ -63,7 +63,7 @@ describe('DailyCoVideo', () => {
     });
     const video = new DailyCoVideo({ apiKey: 'test-key', fetchImpl: fetchImpl as typeof fetch });
 
-    const room = await video.createRoom('c1', { scheduledEnd: SCHEDULED_END });
+    const room = await video.createRoom('c1', { expiresAt: EXPIRES_AT });
     expect(room).toEqual({ roomId: 'consult-c1', roomUrl: 'https://x.daily.co/consult-c1' });
     expect(fetchImpl).toHaveBeenCalledOnce();
   });

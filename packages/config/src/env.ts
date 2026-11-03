@@ -172,6 +172,10 @@ export const envSchema = z.object({
   // ── Video consultations ───────────────────────────────────────────────────
   // Unset ⇒ FakeVideo (rooms/tokens are stubs, no real call is placed).
   DAILY_CO_API_KEY: z.string().min(1).optional(),
+  // A doctor may start a consultation this many minutes before the slot
+  // (never earlier). The video room then lives for the planned duration plus
+  // an hour, counted from the actual start.
+  CONSULTATION_START_EARLY_MINUTES: z.coerce.number().int().min(0).max(120).default(15),
 
   // ── Observability ─────────────────────────────────────────────────────────
   // Reserved: validated so a typo is caught, not yet wired to a reporter.

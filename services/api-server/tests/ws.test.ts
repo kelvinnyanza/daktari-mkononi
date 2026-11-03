@@ -79,7 +79,14 @@ beforeAll(async () => {
   applyTestEnv();
   deps = makeFakeDeps();
   const { buildAppWithServices } = await import('../src/app.js');
-  built = await buildAppWithServices({ deps, redis: null, logger: false });
+  // The CHAT appointment is booked a day ahead on the real clock: widen the
+  // start window (default 15 min before the slot) so the doctor can start now.
+  built = await buildAppWithServices({
+    deps,
+    redis: null,
+    logger: false,
+    settings: { consultationStartEarlyMs: 48 * 60 * 60_000 },
+  });
   await built.app.listen({ port: 0, host: '127.0.0.1' });
   const address = built.app.server.address() as { port: number };
   baseUrl = `http://127.0.0.1:${address.port}`;

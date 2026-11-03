@@ -7,8 +7,6 @@ import {
   type VideoRoom,
 } from './port.js';
 
-const ROOM_GRACE_SECONDS = 2 * 60 * 60; // rooms expire 2h after scheduled end
-
 const roomResponseSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -26,8 +24,10 @@ export interface DailyCoVideoOptions {
 
 /**
  * Daily.co REST implementation (rooms + meeting tokens).
- * Rooms are private (token-gated), capped at 2 participants, and expire
- * 2 hours after the scheduled consultation end.
+ * Rooms are private (token-gated), capped at 2 participants, expire at the
+ * caller's `expiresAt` (counted from the real start), and have Daily's
+ * pre-join screen OFF — a room property overrides the domain default, so one
+ * click on "Join video" joins.
  */
 export class DailyCoVideo implements VideoPort {
   private readonly apiKey: string | undefined;
@@ -70,8 +70,9 @@ export class DailyCoVideo implements VideoPort {
         privacy: 'private', // join requires a meeting token
         properties: {
           max_participants: opts.maxParticipants ?? 2,
-          exp: Math.floor(opts.scheduledEnd.getTime() / 1000) + ROOM_GRACE_SECONDS,
+          exp: Math.floor(opts.expiresAt.getTime() / 1000),
           eject_at_room_exp: true,
+          enable_prejoin_ui: false,
           enable_screenshare: false,
           enable_recording: false, // recording is Phase 5 consent-gate only
         },

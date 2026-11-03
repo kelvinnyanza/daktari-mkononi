@@ -62,6 +62,8 @@ export interface BuildAppOptions {
 export interface AppSettings {
   /** Late payment still confirms within this long after the window, if the slot is free. */
   paymentGraceMs?: number;
+  /** A doctor may start a consultation this long before the slot. */
+  consultationStartEarlyMs?: number;
 }
 
 export interface BuiltApp {
@@ -259,6 +261,9 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
       auditLogs: options.deps.auditLogs,
       medicalRecords: medicalRecordService,
       payments: paymentService,
+      ...(options.settings?.consultationStartEarlyMs !== undefined
+        ? { startEarlyMs: options.settings.consultationStartEarlyMs }
+        : {}),
     },
     now,
   );

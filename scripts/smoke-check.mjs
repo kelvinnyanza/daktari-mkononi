@@ -8,7 +8,14 @@
  *   3. AI_PROVIDER (anthropic | openai | fake) → one tiny request through the
  *      real @daktari/ai adapter, so it sends exactly what the server sends
  *      (OpenAI: store:false + the model's parameter profile)
- *   4. DAILY_CO_API_KEY set  → create + delete one throwaway private room
+ *   4. DAILY_CO_API_KEY set  → create a throwaway private room + meeting
+ *      token, JOIN it from a headless Edge/Chrome (camera and mic off, real
+ *      daily-js), leave, delete the room. A join is what surfaces account /
+ *      billing problems (e.g. no payment method) that room creation does not.
+ *
+ * It never rebuilds any package dist folder: the AI adapter is compiled into
+ * packages/ai/.smoke-dist, which the dev API does not import, so a running
+ * `tsx watch` API is not restarted by this check.
  *
  * Exits non-zero if the API is down or a configured provider fails. A blank
  * key is not a failure (blank = local fake, except AI which returns 503
@@ -20,6 +27,9 @@
  * are not printed — only the typed error code, HTTP status and error type,
  * with anything key-shaped redacted.
  */
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readEnvFile } from './env-file.mjs';
@@ -85,18 +95,23 @@ function providerKeys() {
   if (!isSet('DAILY_CO_API_KEY')) console.log('  ! video uses FakeVideo — no real call can connect');
 }
 
-// The smoke:check entry rebuilds packages/ai/dist first, which makes a
-// `tsx watch` dev API restart; ride out that brief ECONNREFUSED window.
-async function fetchLive(url) {
-  const deadline = Date.now() + 15_000;
-  for (;;) {
-    try {
-      return await fetch(url, { signal: AbortSignal.timeout(5_000) });
-    } catch (error) {
-      if (error?.cause?.code !== 'ECONNREFUSED' || Date.now() > deadline) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-  }
+const fetchLive = (url) => fetch(url, { signal: AbortSignal.timeout(5_000) });
+
+/**
+ * Compile @daktari/ai into packages/ai/.smoke-dist (gitignored). Inside the
+ * package so its own dependencies still resolve; NOT dist/, which the dev API
+ * imports — rewriting dist/ is what used to restart `tsx watch`.
+ */
+function buildSmokeAi() {
+  const outDir = path.join(REPO_ROOT, 'packages', 'ai', '.smoke-dist');
+  const tsc = path.join(REPO_ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+  const result = spawnSync(
+    process.execPath,
+    [tsc, '-p', path.join(REPO_ROOT, 'packages', 'ai', 'tsconfig.build.json'), '--outDir', outDir, '--declaration', 'false', '--declarationMap', 'false', '--sourceMap', 'false'],
+    { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' },
+  );
+  if (result.status !== 0) throw new Error(`could not compile @daktari/ai: ${(result.stdout || result.stderr).slice(0, 500)}`);
+  return path.join(outDir, 'index.js');
 }
 
 async function health() {
@@ -144,8 +159,12 @@ function describeAiError(error) {
 
 async function ai() {
   console.log(`\nAI screening (AI_PROVIDER=${AI_PROVIDER})`);
-  // Built by the smoke:check script entry (pnpm --filter @daktari/ai build).
-  const distEntry = path.join(REPO_ROOT, 'packages', 'ai', 'dist', 'index.js');
+  let distEntry;
+  try {
+    distEntry = buildSmokeAi();
+  } catch (error) {
+    return fail('build', error.message);
+  }
   const { createAiProvider } = await import(pathToFileURL(distEntry).href);
 
   if (!['anthropic', 'openai', 'fake'].includes(AI_PROVIDER)) {
@@ -190,12 +209,82 @@ async function ai() {
   }
 }
 
+/** Edge or Chrome already installed on this machine (nothing is downloaded). */
+function findBrowser() {
+  const candidates = [
+    process.env.SMOKE_BROWSER,
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Google/Chrome/Application/chrome.exe',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  ].filter(Boolean);
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+const JOIN_PAGE = `<!doctype html><meta charset="utf-8"><script src="/daily.js"></script>
+<script>
+window.joinRoom = async (url, token) => {
+  const call = window.Daily.createCallObject({ audioSource: false, videoSource: false, subscribeToTracksAutomatically: false });
+  let lastError = null;
+  call.on('error', (event) => { lastError = event; });
+  try {
+    await call.join({ url, token });
+    const session = call.participants().local?.session_id ?? null;
+    await call.leave();
+    await call.destroy();
+    return { ok: true, session };
+  } catch (error) {
+    const event = lastError ?? error ?? {};
+    await call.destroy().catch(() => undefined);
+    return { ok: false, type: event?.error?.type ?? null, message: String(event?.errorMsg ?? event?.message ?? event) };
+  }
+};
+</script>`;
+
+/** Serve the join page + the repo's own daily-js on 127.0.0.1 (a secure context). */
+async function serveJoinPage() {
+  const dailyJs = readFileSync(path.join(REPO_ROOT, 'apps', 'web', 'node_modules', '@daily-co', 'daily-js', 'dist', 'daily.js'));
+  const server = createServer((request, response) => {
+    if (request.url === '/daily.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript' }).end(dailyJs);
+    } else {
+      response.writeHead(200, { 'content-type': 'text/html' }).end(JOIN_PAGE);
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { server, origin: `http://127.0.0.1:${server.address().port}` };
+}
+
+async function headlessJoin(roomUrl, token) {
+  const executablePath = findBrowser();
+  if (executablePath === null) return { skipped: 'no Edge/Chrome found (set SMOKE_BROWSER to a Chromium-based browser)' };
+  const { chromium } = await import('playwright-core');
+  const { server, origin } = await serveJoinPage();
+  const browser = await chromium.launch({
+    executablePath,
+    headless: true,
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.goto(origin);
+    return await page.evaluate(([url, meetingToken]) => window.joinRoom(url, meetingToken), [roomUrl, token]);
+  } finally {
+    await browser.close().catch(() => undefined);
+    server.close();
+  }
+}
+
 async function daily() {
   console.log('\nDaily.co');
   if (!isSet('DAILY_CO_API_KEY')) return line('SKIP', 'DAILY_CO_API_KEY blank');
   const base = 'https://api.daily.co/v1';
   const headers = { authorization: `Bearer ${env.DAILY_CO_API_KEY}`, 'content-type': 'application/json' };
   const name = `smoke-check-${Date.now()}`;
+  const exp = Math.floor(Date.now() / 1000) + 600; // self-destructs in 10 min even if cleanup fails
+  let roomUrl;
   try {
     const created = await fetch(`${base}/rooms`, {
       method: 'POST',
@@ -204,26 +293,54 @@ async function daily() {
       body: JSON.stringify({
         name,
         privacy: 'private',
-        // Self-destructs in 10 min even if the delete below never runs.
-        properties: { exp: Math.floor(Date.now() / 1000) + 600, max_participants: 2 },
+        // Same switches the API sets on consultation rooms.
+        properties: { exp, max_participants: 2, eject_at_room_exp: true, enable_prejoin_ui: false },
       }),
     });
     if (!created.ok) {
       return fail('create room', `HTTP ${created.status}${created.status === 401 ? ' — key rejected' : ''}`);
     }
+    roomUrl = (await created.json()).url;
     pass('create room', name);
   } catch (error) {
     return fail('create room', describeError(error));
   }
+
   try {
-    const deleted = await fetch(`${base}/rooms/${encodeURIComponent(name)}`, {
-      method: 'DELETE',
+    let token;
+    const minted = await fetch(`${base}/meeting-tokens`, {
+      method: 'POST',
       headers,
       signal: AbortSignal.timeout(TIMEOUT_MS),
+      body: JSON.stringify({ properties: { room_name: name, user_id: 'smoke-check', exp } }),
     });
-    (deleted.ok ? pass : fail)('delete room', deleted.ok ? undefined : `HTTP ${deleted.status} (room expires in 10 min anyway)`);
-  } catch (error) {
-    fail('delete room', `${describeError(error)} (room expires in 10 min anyway)`);
+    if (!minted.ok) {
+      fail('meeting token', `HTTP ${minted.status}`);
+    } else {
+      token = (await minted.json()).token;
+      pass('meeting token');
+    }
+    if (token !== undefined) {
+      try {
+        const joined = await headlessJoin(roomUrl, token);
+        if (joined.skipped) line('SKIP', 'join (headless)', joined.skipped);
+        else if (joined.ok) pass('join + leave (headless browser)', 'camera/mic off; Daily accepted the participant');
+        else fail('join (headless browser)', `${joined.type ?? 'error'}: ${redact(joined.message).slice(0, 160)}`);
+      } catch (error) {
+        fail('join (headless browser)', describeError(error));
+      }
+    }
+  } finally {
+    try {
+      const deleted = await fetch(`${base}/rooms/${encodeURIComponent(name)}`, {
+        method: 'DELETE',
+        headers,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      (deleted.ok ? pass : fail)('delete room', deleted.ok ? undefined : `HTTP ${deleted.status} (room expires in 10 min anyway)`);
+    } catch (error) {
+      fail('delete room', `${describeError(error)} (room expires in 10 min anyway)`);
+    }
   }
 }
 

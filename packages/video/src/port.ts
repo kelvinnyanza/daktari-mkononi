@@ -1,8 +1,12 @@
 /** Video-room provider port — implemented by FakeVideo (dev/tests) and DailyCoVideo. */
 
 export interface CreateRoomOptions {
-  /** UTC instant the consultation is scheduled to end; rooms expire 2h after. */
-  scheduledEnd: Date;
+  /**
+   * UTC instant the room dies (participants are ejected). The caller counts
+   * it from when the consultation ACTUALLY starts — never from the scheduled
+   * slot — so a late start or a restart never gets an already-dead room.
+   */
+  expiresAt: Date;
   /** Hard cap on participants (doctor + patient). */
   maxParticipants?: number;
 }

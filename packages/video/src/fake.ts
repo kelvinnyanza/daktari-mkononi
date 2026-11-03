@@ -2,7 +2,7 @@ import type { CreateRoomOptions, MeetingTokenOptions, VideoPort, VideoRoom } fro
 
 interface FakeRoom extends VideoRoom {
   consultationId: string;
-  scheduledEnd: Date;
+  expiresAt: Date;
   maxParticipants: number;
   ended: boolean;
   tokens: Array<MeetingTokenOptions & { token: string }>;
@@ -21,7 +21,7 @@ export class FakeVideo implements VideoPort {
       roomId,
       roomUrl: `https://fake.daily.local/${roomId}`,
       consultationId,
-      scheduledEnd: opts.scheduledEnd,
+      expiresAt: opts.expiresAt,
       maxParticipants: opts.maxParticipants ?? 2,
       ended: false,
       tokens: [],

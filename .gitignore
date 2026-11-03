@@ -38,3 +38,5 @@ Thumbs.db
 apps/mobile/android/
 apps/mobile/ios/
 apps/mobile/.expo/
+# smoke:check compiles @daktari/ai here (never dist/, which the dev API watches)
+packages/ai/.smoke-dist/

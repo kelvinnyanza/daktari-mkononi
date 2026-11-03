@@ -24,6 +24,25 @@ import type { MedicalRecordService } from '../medical-records/medical-record.ser
 
 const MEETING_TOKEN_TTL_SECONDS = 2 * 60 * 60;
 
+/** Default for CONSULTATION_START_EARLY_MINUTES. */
+export const DEFAULT_CONSULTATION_START_EARLY_MS = 15 * 60_000;
+/** A room outlives the planned duration by this much (overruns, reconnects). */
+export const ROOM_BUFFER_MS = 60 * 60_000;
+
+/**
+ * When the video room dies: counted from the ACTUAL start (now) — planned
+ * duration plus a buffer — and never earlier than the scheduled end plus the
+ * buffer, so a late start or a restart after a technical failure always gets
+ * a live room (the old rule counted from the slot and could hand a restart a
+ * room that was already expired).
+ */
+export function roomExpiry(startedAt: Date, scheduledAt: Date, durationMinutes: number): Date {
+  const durationMs = durationMinutes * 60_000;
+  return new Date(
+    Math.max(startedAt.getTime(), scheduledAt.getTime()) + durationMs + ROOM_BUFFER_MS,
+  );
+}
+
 const CONSULTATION_NOT_FOUND = (): ApiError =>
   new ApiError(404, 'CONSULTATION_NOT_FOUND', msg('Ushauri haujapatikana', 'Consultation not found'));
 
@@ -74,6 +93,8 @@ export interface ConsultationServiceDeps {
   pubsub: PubSubPort;
   auditLogs: AuditLogPort;
   medicalRecords: MedicalRecordService;
+  /** How early before the slot a doctor may start (default 15 min). */
+  startEarlyMs?: number;
   /** Doctor-earnings accrual on completion (Phase 7). */
   payments: {
     accrueForConsultation(input: {
@@ -89,6 +110,10 @@ export class ConsultationService {
     private readonly deps: ConsultationServiceDeps,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  private get startEarlyMs(): number {
+    return this.deps.startEarlyMs ?? DEFAULT_CONSULTATION_START_EARLY_MS;
+  }
 
   // ── Participant resolution ─────────────────────────────────────────────────
 
@@ -168,6 +193,21 @@ export class ConsultationService {
       throw INVALID_TRANSITION(existing.status, 'START_CONSULTATION');
     }
 
+    // Not any time: from CONSULTATION_START_EARLY_MINUTES before the slot.
+    // (A restart after a technical failure is past the slot start anyway.)
+    const opensAt = appointment.scheduledAt.getTime() - this.startEarlyMs;
+    if (this.now().getTime() < opensAt) {
+      throw new ApiError(
+        409,
+        'CONSULTATION_TOO_EARLY',
+        msg(
+          `Mashauriano yanaweza kuanza dakika ${Math.round(this.startEarlyMs / 60_000)} kabla ya muda wa miadi`,
+          `The consultation can start ${Math.round(this.startEarlyMs / 60_000)} minutes before the appointment time`,
+        ),
+        { opensAt: new Date(opensAt).toISOString() },
+      );
+    }
+
     const applied = await this.deps.appointments.transition(appointment.id, transition.from, {
       status: transition.to,
     });
@@ -181,11 +221,11 @@ export class ConsultationService {
     // Video room for remote audio/video consultations.
     let room: { roomId: string; roomUrl: string } | null = null;
     if (appointment.type === 'VIDEO' || appointment.type === 'AUDIO') {
-      const scheduledEnd = new Date(
-        appointment.scheduledAt.getTime() + appointment.durationMinutes * 60_000,
-      );
       const roomKey = existing ? `${appointmentId}-r2` : appointmentId;
-      room = await this.deps.video.createRoom(roomKey, { scheduledEnd, maxParticipants: 2 });
+      room = await this.deps.video.createRoom(roomKey, {
+        expiresAt: roomExpiry(this.now(), appointment.scheduledAt, appointment.durationMinutes),
+        maxParticipants: 2,
+      });
     }
 
     const consultation = existing

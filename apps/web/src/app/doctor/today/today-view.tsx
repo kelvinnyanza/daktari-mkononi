@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PageHeader } from '@/components/portal-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useI18nStore, useT, pickBilingual } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
+import { canStartConsultation, consultationOpensAt } from '@/lib/consultation-rules';
 import { eatDateOf, eatTimeLabel, shiftEatDate } from '@/lib/eat';
 import { appointmentStatusTone } from '@/lib/status';
 
@@ -48,6 +49,12 @@ export function TodayView({
   const queryClient = useQueryClient();
 
   const today = eatDateOf(now());
+  // Re-render every 30 s so a Start button enables when its window opens.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), 30_000);
+    return () => clearInterval(timer);
+  }, []);
   const [date, setDate] = useState(today);
   const [checkInToken, setCheckInToken] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -191,10 +198,18 @@ export function TodayView({
                 )}
 
                 <div className="ml-auto flex gap-2">
+                  {STARTABLE.has(appointment.status) &&
+                    !canStartConsultation(appointment.scheduledAt, now()) && (
+                      <span className="self-center text-xs text-muted-foreground">
+                        {t('today.startOpensAt', {
+                          time: eatTimeLabel(consultationOpensAt(appointment.scheduledAt).toISOString()),
+                        })}
+                      </span>
+                    )}
                   {STARTABLE.has(appointment.status) && (
                     <Button
                       size="sm"
-                      disabled={start.isPending}
+                      disabled={start.isPending || !canStartConsultation(appointment.scheduledAt, now())}
                       onClick={() => {
                         setActionError(null);
                         start.mutate(appointment.id);

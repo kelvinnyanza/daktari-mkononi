@@ -211,6 +211,7 @@ async function main(): Promise<void> {
     redis,
     settings: {
       paymentGraceMs: env.PAYMENT_GRACE_MINUTES * 60_000,
+      consultationStartEarlyMs: env.CONSULTATION_START_EARLY_MINUTES * 60_000,
     },
   });
 

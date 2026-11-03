@@ -4,12 +4,14 @@ import { icd10CodeSchema } from '@daktari/schemas';
 import { applyTestEnv } from './helpers/env.js';
 import { makeFakeDeps, type FakeDeps } from './helpers/fakes.js';
 import { AppointmentService } from '../src/modules/appointments/appointment.service.js';
-import { ConsultationService } from '../src/modules/consultations/consultation.service.js';
+import { ConsultationService, roomExpiry } from '../src/modules/consultations/consultation.service.js';
 import { MedicalRecordService } from '../src/modules/medical-records/medical-record.service.js';
 import { ApiError } from '../src/lib/errors.js';
 
 const NOW = new Date('2026-07-16T09:00:00.000Z');
 const SLOT = new Date('2026-07-20T06:00:00.000Z');
+/** Inside the start window: 10 minutes before the slot (window opens 15 min before). */
+const AT_SLOT = new Date(SLOT.getTime() - 10 * 60_000);
 
 let deps: FakeDeps;
 let clock: { now: Date };
@@ -54,6 +56,7 @@ async function confirmedVideoAppointment() {
     paymentIntent: 'MOBILE_MONEY',
   });
   await appointments.handlePaymentCompleted(booked.id);
+  clock.now = new Date(AT_SLOT); // booked days ahead; the doctor starts near the slot
   return { doctor, doctorUser, patientUser, patient, appointmentId: booked.id };
 }
 
@@ -70,6 +73,50 @@ const FULL_NOTES = {
   assessment: 'Post-viral cough, no red flags',
   plan: 'Symptomatic treatment, review in 2 weeks',
 };
+
+describe('start window + video room expiry (13b)', () => {
+  it('refuses to start more than 15 minutes before the slot; opens exactly at slot − 15 min', async () => {
+    const { doctorUser, appointmentId } = await confirmedVideoAppointment();
+    clock.now = new Date(SLOT.getTime() - 16 * 60_000);
+    const error = await expectApiError(consultations.start(doctorUser.id, appointmentId), 'CONSULTATION_TOO_EARLY');
+    expect(error.details).toEqual({ opensAt: new Date(SLOT.getTime() - 15 * 60_000).toISOString() });
+    expect(deps.state.appointments.get(appointmentId)!.status).toBe('CONFIRMED'); // nothing changed
+    clock.now = new Date(SLOT.getTime() - 15 * 60_000);
+    expect((await consultations.start(doctorUser.id, appointmentId)).status).toBe('IN_PROGRESS');
+  });
+
+  it('the window is configurable (startEarlyMs)', async () => {
+    consultations = new ConsultationService(
+      { ...deps, medicalRecords, startEarlyMs: 60 * 60_000 },
+      () => clock.now,
+    );
+    const { doctorUser, appointmentId } = await confirmedVideoAppointment();
+    clock.now = new Date(SLOT.getTime() - 50 * 60_000);
+    expect((await consultations.start(doctorUser.id, appointmentId)).status).toBe('IN_PROGRESS');
+  });
+
+  it('room expiry counts from the ACTUAL start: a late start and a restart both get a live room', async () => {
+    const { doctorUser, appointmentId } = await confirmedVideoAppointment();
+    const late = new Date(SLOT.getTime() + 3 * 60 * 60_000); // 3 h after the slot
+    clock.now = late;
+    const started = await consultations.start(doctorUser.id, appointmentId);
+    const room = deps.video.rooms.get(`fake-room-${appointmentId}`)!;
+    // 30-min appointment + 60-min buffer from the real start.
+    expect(room.expiresAt.getTime()).toBe(late.getTime() + 90 * 60_000);
+    expect(room.expiresAt.getTime()).toBeGreaterThan(clock.now.getTime());
+
+    // Technical failure much later → the restart's room is fresh too.
+    clock.now = new Date(late.getTime() + 2 * 60 * 60_000);
+    await consultations.abort(doctorUser.id, started.id, 'video dropped');
+    await consultations.start(doctorUser.id, appointmentId);
+    const restarted = deps.video.rooms.get(`fake-room-${appointmentId}-r2`)!;
+    expect(restarted.expiresAt.getTime()).toBe(clock.now.getTime() + 90 * 60_000);
+  });
+
+  it('an early start never shortens the room below scheduled end + buffer', () => {
+    expect(roomExpiry(new Date(SLOT.getTime() - 15 * 60_000), SLOT, 30).getTime()).toBe(SLOT.getTime() + 90 * 60_000);
+  });
+});
 
 describe('start', () => {
   it('doctor starts from CONFIRMED remote appointment; creates room + doctor token', async () => {
@@ -98,6 +145,7 @@ describe('start', () => {
       reason: 'Uchunguzi wa mwili',
       paymentIntent: 'CASH_AT_FACILITY',
     });
+    clock.now = new Date(AT_SLOT);
     await expectApiError(consultations.start(doctorUser.id, booked.id), 'CHECK_IN_REQUIRED');
 
     // After check-in the same start succeeds — and no video room is created.
@@ -210,7 +258,7 @@ describe('complete', () => {
   it('completes: durationSeconds computed, room ended, record generated, doctor counter bumped', async () => {
     const { doctor, doctorUser, patient, consultationId, appointmentId } = await startedConsultation();
     await consultations.updateNotes(doctorUser.id, consultationId, FULL_NOTES);
-    clock.now = new Date(NOW.getTime() + 25 * 60_000); // 25 minutes later
+    clock.now = new Date(AT_SLOT.getTime() + 25 * 60_000); // 25 minutes later
 
     const completed = await consultations.complete(doctorUser.id, consultationId);
     expect(completed.status).toBe('COMPLETED');
