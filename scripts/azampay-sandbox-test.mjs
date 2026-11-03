@@ -100,6 +100,7 @@ const makeProvider = (overrides = {}) =>
     clientId: env.AZAMPAY_CLIENT_ID,
     clientSecret: env.AZAMPAY_CLIENT_SECRET,
     environment: 'sandbox',
+    ...(blank(env.AZAMPAY_API_KEY) ? {} : { apiKey: env.AZAMPAY_API_KEY }),
     ...(blank(env.AZAMPAY_AUTH_BASE_URL) ? {} : { authBaseUrl: env.AZAMPAY_AUTH_BASE_URL }),
     ...(blank(env.AZAMPAY_CHECKOUT_BASE_URL) ? {} : { checkoutBaseUrl: env.AZAMPAY_CHECKOUT_BASE_URL }),
     ...(blank(env.AZAMPAY_DISBURSEMENT_BASE_URL) ? {} : { disbursementBaseUrl: env.AZAMPAY_DISBURSEMENT_BASE_URL }),
@@ -118,6 +119,7 @@ const hosts = azam.hosts;
 console.log(`  hosts: auth ${hosts.auth}`);
 console.log(`         checkout ${hosts.checkout}`);
 console.log(`         disbursement ${hosts.disbursement} (token from ${hosts.disbursementAuth})`);
+console.log(`  X-API-Key: ${azam.apiKeyConfigured ? 'configured — sent on MNO checkout' : 'not set (AZAMPAY_API_KEY)'}`);
 
 // 1. Token.
 let tokenOk = false;

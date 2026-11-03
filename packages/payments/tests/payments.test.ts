@@ -425,6 +425,41 @@ describe('AzamPay adapter vs the official spec (Phase 13a)', () => {
     });
   });
 
+  it('X-API-Key: sent on MNO checkout when configured, nowhere else; absent when not configured', async () => {
+    const headersOf: Array<{ url: string; key: string | undefined }> = [];
+    const make = (apiKey?: string) =>
+      new AzamPayProvider({
+        appName: 'daktari',
+        clientId: 'id',
+        clientSecret: 'secret',
+        retryDelaysMs: [0, 0],
+        ...(apiKey !== undefined ? { apiKey } : {}),
+        fetchImpl: (async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+          headersOf.push({ url: String(url), key: (init?.headers as Record<string, string>)['x-api-key'] });
+          if (String(url).includes('GenerateToken')) {
+            return json({ data: { accessToken: 'tok', expire: new Date(Date.now() + 3600_000).toISOString() } });
+          }
+          if (String(url).includes('checkout')) return json({ transactionId: 't', success: true });
+          return json({ success: true, data: { status: 'success' } });
+        }) as typeof fetch,
+      });
+    const checkout = { phoneE164: '+255742345678', amountTzs: 1_000, currency: 'TZS' as const, externalReference: 'a:1', description: 'x' };
+    const withKey = make('0f8fad5b-d9cb-469f-a165-70867728950e');
+    expect(withKey.apiKeyConfigured).toBe(true);
+    await withKey.initiateCollection(checkout);
+    await withKey.queryDisbursementStatus('pg-d', { bankName: 'tigo' });
+    expect(headersOf.map((entry) => [new URL(entry.url).pathname, entry.key])).toEqual([
+      ['/AppRegistration/GenerateToken', undefined],
+      ['/azampay/mno/checkout', '0f8fad5b-d9cb-469f-a165-70867728950e'],
+      ['/api/v1/azampay/transactionstatus', undefined],
+    ]);
+    headersOf.length = 0;
+    const without = make();
+    expect(without.apiKeyConfigured).toBe(false);
+    await without.initiateCollection(checkout);
+    expect(headersOf.every((entry) => entry.key === undefined)).toBe(true);
+  });
+
   it('checkout status query switched off → NOT_SUPPORTED without any HTTP call; disbursement status still works', async () => {
     const { azam, calls } = provider(() => json({ success: true, data: { status: 'success' } }), {
       checkoutStatusQuery: false,

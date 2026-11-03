@@ -310,6 +310,13 @@ export interface AzamPayOptions {
   authBaseUrl?: string;
   checkoutBaseUrl?: string;
   disbursementBaseUrl?: string;
+  /**
+   * The portal "Token" / API key issued at onboarding, sent as `X-API-Key`.
+   * The spec defines the scheme but marks no operation as requiring it; only
+   * the MNO checkout samples send it, so it goes on MNO checkout only. Unset
+   * ⇒ no header (the sandbox checkout succeeds without it).
+   */
+  apiKey?: string;
   /** Authenticator for disbursement-host calls; unset ⇒ authBaseUrl (one token for both). */
   disbursementAuthBaseUrl?: string;
   /** PEM issued by AzamPay for the disbursement / name-lookup checksum. Unset ⇒ no checksum sent. */
@@ -398,6 +405,11 @@ export class AzamPayProvider implements MobileMoneyPort {
     };
   }
 
+  /** Whether an X-API-Key is configured (never the value). */
+  get apiKeyConfigured(): boolean {
+    return this.options.apiKey !== undefined;
+  }
+
   /** Whether callback signatures can be checked at all. */
   get callbackKeyConfigured(): boolean {
     return this.options.callbackPublicKeyPem !== undefined;
@@ -453,6 +465,7 @@ export class AzamPayProvider implements MobileMoneyPort {
       },
       token,
       'write',
+      { apiKey: true },
     );
     const parsed = this.parse(checkoutResponseSchema, response, 'checkout');
     const providerReference = parsed.transactionId ?? null;
@@ -715,13 +728,14 @@ export class AzamPayProvider implements MobileMoneyPort {
     body: Record<string, unknown> | undefined,
     bearer: string | undefined,
     kind: 'read' | 'fast-read' | 'write',
+    extra: { apiKey?: boolean } = {},
   ): Promise<unknown> {
     const attempts = kind === 'read' ? this.retryDelaysMs.length + 1 : 1;
     let lastError: MobileMoneyError | undefined;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (attempt > 0) await sleep(this.retryDelaysMs[attempt - 1] ?? 0);
       try {
-        return await this.requestOnce(method, url, body, bearer, kind);
+        return await this.requestOnce(method, url, body, bearer, kind, extra);
       } catch (error) {
         if (!(error instanceof RetryableError)) throw error;
         lastError = error.mapped;
@@ -736,6 +750,7 @@ export class AzamPayProvider implements MobileMoneyPort {
     body: Record<string, unknown> | undefined,
     bearer: string | undefined,
     kind: 'read' | 'fast-read' | 'write',
+    extra: { apiKey?: boolean } = {},
   ): Promise<unknown> {
     const parsedUrl = new URL(url);
     // Host + path, never the query string: the exact host is what diagnoses a
@@ -768,6 +783,7 @@ export class AzamPayProvider implements MobileMoneyPort {
         headers: {
           'content-type': 'application/json',
           ...(bearer !== undefined ? { authorization: `Bearer ${bearer}` } : {}),
+          ...(extra.apiKey === true && this.options.apiKey !== undefined ? { 'x-api-key': this.options.apiKey } : {}),
         },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
         signal: AbortSignal.timeout(deadlineMs),

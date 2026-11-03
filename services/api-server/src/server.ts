@@ -90,6 +90,7 @@ function createMobileMoney(
       clientId: env.AZAMPAY_CLIENT_ID,
       clientSecret: env.AZAMPAY_CLIENT_SECRET,
       environment: env.AZAMPAY_ENV,
+      ...(env.AZAMPAY_API_KEY !== undefined ? { apiKey: env.AZAMPAY_API_KEY } : {}),
       ...(env.AZAMPAY_AUTH_BASE_URL !== undefined ? { authBaseUrl: env.AZAMPAY_AUTH_BASE_URL } : {}),
       ...(env.AZAMPAY_CHECKOUT_BASE_URL !== undefined
         ? { checkoutBaseUrl: env.AZAMPAY_CHECKOUT_BASE_URL }
@@ -225,6 +226,7 @@ async function main(): Promise<void> {
         azampayEnv: env.AZAMPAY_ENV,
         hosts: mobileMoney.hosts,
         callbackSignatureKey: mobileMoney.callbackKeyConfigured ? 'configured' : 'NOT SET (callbacks treated as unsigned)',
+        apiKey: mobileMoney.apiKeyConfigured ? 'configured (X-API-Key on checkout)' : 'not set',
         checkoutStatusQuery: env.AZAMPAY_CHECKOUT_STATUS_QUERY,
       },
       'AzamPay provider',

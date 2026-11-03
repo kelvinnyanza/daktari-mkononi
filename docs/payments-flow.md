@@ -275,6 +275,11 @@ so this is an upload.)
   not registered on `authenticator-test`. **Ask AzamPay** which authenticator
   issues disbursement-sandbox tokens for our app, or to enable disbursement on
   it; then set `AZAMPAY_DISBURSEMENT_AUTH_BASE_URL` if needed.
+- The portal's "Token" (a UUID) is the `X-API-Key` the spec defines. No
+  operation marks it required; only the MNO checkout samples send it, so we
+  send it there when `AZAMPAY_API_KEY` is set (optional, also in production).
+  Checkout succeeds with and without it in the sandbox, and it does **not**
+  fix the disbursement host's 401 (probed both ways).
 - `GET /azampay/v1/public-key` is 404 on the sandbox (it exists on the
   production checkout host). The key is configuration now.
 

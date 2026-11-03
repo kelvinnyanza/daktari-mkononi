@@ -111,6 +111,11 @@ export const envSchema = z.object({
   AZAMPAY_APP_NAME: z.string().min(1).optional(),
   AZAMPAY_CLIENT_ID: z.string().min(1).optional(),
   AZAMPAY_CLIENT_SECRET: z.string().min(1).optional(),
+  // The portal's "Token" (a UUID), sent as X-API-Key on MNO checkout — the
+  // only call whose spec samples send it; no operation marks it required, so
+  // it is optional (also in production). Not a public key: it never goes in
+  // AZAMPAY_CHECKSUM_PUBLIC_KEY.
+  AZAMPAY_API_KEY: z.string().min(1).optional(),
   // sandbox ⇒ AzamPay's sandbox hosts; production ⇒ live hosts. The
   // production guard refuses NODE_ENV=production with AZAMPAY_ENV=sandbox.
   AZAMPAY_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
