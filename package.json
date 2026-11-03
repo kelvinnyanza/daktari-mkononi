@@ -25,7 +25,10 @@
     "db:stop": "node scripts/db.mjs stop",
     "db:status": "node scripts/db.mjs status",
     "db:reset": "node scripts/db.mjs reset",
-    "db:push": "pnpm --filter @daktari/db db:push",
+    "db:migrate": "pnpm --filter @daktari/db db:migrate",
+    "db:deploy": "pnpm --filter @daktari/db db:deploy",
+    "db:migrate:status": "pnpm --filter @daktari/db db:migrate:status",
+    "db:migrations:check": "node scripts/check-migrations.mjs",
     "db:seed": "pnpm --filter @daktari/db db:seed"
   },
   "pnpm": {

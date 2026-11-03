@@ -128,20 +128,28 @@ function checkDatabase(values) {
 
   if (!isRunning()) {
     record(false, 'PostgreSQL reachable', 'run `pnpm db:start`');
-    record(false, 'schema pushed', 'blocked: database is not running');
+    record(false, 'migrations applied', 'blocked: database is not running');
     record(false, 'seed data present', 'blocked: database is not running');
     return;
   }
   record(true, 'PostgreSQL reachable', `localhost:${PG_PORT}`);
 
-  // A trivial query against a table Prisma owns proves the schema is applied.
-  const schema = psql(databaseUrl, 'SELECT count(*) FROM "User"');
-  if (schema.status !== 0) {
-    record(false, 'schema pushed', 'run `pnpm db:push`');
-    record(false, 'seed data present', 'blocked: schema is not pushed');
+  // Migration history present + the partial booking index (which only the
+  // migrations create) proves the schema came from prisma/migrations.
+  const migrated = psql(
+    databaseUrl,
+    `SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL` +
+      ` AND EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'uniq_appointment_active_slot')`,
+  );
+  const applied = Number((migrated.stdout ?? '0').trim());
+  if (migrated.status !== 0 || !(applied > 0)) {
+    record(false, 'migrations applied', 'run `pnpm db:migrate` (or `pnpm db:deploy`)');
+    record(false, 'seed data present', 'blocked: database is not migrated');
     return;
   }
-  record(true, 'schema pushed', '"User" table queryable');
+  record(true, 'migrations applied', `${applied} applied, booking index present`);
+
+  const schema = psql(databaseUrl, 'SELECT count(*) FROM "User"');
 
   const count = Number((schema.stdout ?? '0').trim());
   record(count > 0, 'seed data present',

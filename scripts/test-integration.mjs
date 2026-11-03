@@ -7,7 +7,10 @@
  * Locally: starts the repo-local portable Postgres (scripts/db.mjs start, which
  * also creates daktari_test if missing), reads TEST_DATABASE_URL from
  * `.env.test` at the repo root (defaulting to the portable cluster's
- * daktari_test), pushes the Prisma schema into it, then runs the suite.
+ * daktari_test), rebuilds it FROM THE MIGRATIONS (`prisma migrate reset`:
+ * drop everything, apply prisma/migrations in order — including the partial
+ * booking index), then runs the suite. No `db push`: the tests run against
+ * exactly what `migrate deploy` produces in production.
  *
  * In CI (`CI` set): the database is a service container, so the local server
  * is not started and TEST_DATABASE_URL must already be in the environment.
@@ -73,9 +76,9 @@ if (!isCi) {
 // DATABASE_URL in the child env wins: prisma.config.ts loads the root .env
 // with dotenv, which never overrides variables that are already set.
 step(
-  `Push Prisma schema into ${dbName}`,
+  `Rebuild ${dbName} from prisma/migrations`,
   'pnpm',
-  ['--filter', '@daktari/db', 'exec', 'prisma', 'db', 'push', '--skip-generate'],
+  ['--filter', '@daktari/db', 'exec', 'prisma', 'migrate', 'reset', '--force', '--skip-seed', '--skip-generate'],
   { DATABASE_URL: testUrl },
 );
 

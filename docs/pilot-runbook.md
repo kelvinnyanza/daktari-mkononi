@@ -33,7 +33,7 @@ but the real device test needs:
 ```powershell
 # Terminal 1 — database (portable Postgres in .local/pg16; no Docker)
 pnpm db:start        # starts it; creates daktari_dev + daktari_test if missing
-pnpm db:push         # schema → daktari_dev
+pnpm db:migrate      # prisma/migrations → daktari_dev
 pnpm db:seed         # seeded admin + 4 APPROVED doctors (see README "Seeded logins")
 pnpm dev:doctor      # environment self-check: every line should PASS
 
@@ -117,7 +117,7 @@ The IP is read when Metro bundles, so after an IP change edit
 
 ## 0. Bring the stack up
 
-Same commands as checklist step 2 above: `pnpm db:start`, `pnpm db:push`,
+Same commands as checklist step 2 above: `pnpm db:start`, `pnpm db:migrate`,
 `pnpm db:seed`, then the API and the web portal in their own terminals.
 
 For the phone to reach the API, both must be on the same Wi-Fi and the mobile

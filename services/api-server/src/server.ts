@@ -14,7 +14,7 @@ import {
   doctorDocumentRepository,
   doctorPaymentRepository,
   doctorRepository,
-  ensureBookingSlotIndex,
+  assertBookingSlotIndex,
   feeSettingsRepository,
   payoutRepository,
   financeRepository,
@@ -145,8 +145,9 @@ async function main(): Promise<void> {
     : new Redis(env.REDIS_URL, { maxRetriesPerRequest: 2 });
   const { storage, localFiles } = createStorage(env);
 
-  // Prisma cannot declare the partial unique index that arbitrates bookings.
-  await ensureBookingSlotIndex();
+  // Migrations own the schema (incl. the partial booking index); refuse to
+  // serve bookings on a database that has not been migrated.
+  await assertBookingSlotIndex();
 
   // AI_PROVIDER picks the backend; its key unset ⇒ null ⇒ 503
   // AI_NOT_CONFIGURED. Never an implicit fake or a fallback to the other

@@ -16,7 +16,7 @@ git clone <repo> && cd daktari-mkononi
 pnpm install       # dependencies + Prisma client
 pnpm dev:setup     # writes .env with freshly generated secrets (idempotent)
 pnpm db:start      # installs PostgreSQL 16 on first run, starts it, creates the databases
-pnpm db:push       # apply the Prisma schema
+pnpm db:migrate    # apply prisma/migrations
 pnpm db:seed       # seed realistic Tanzanian test data
 pnpm dev:doctor    # verify all of the above
 ```
@@ -115,8 +115,11 @@ Only these must be set — `pnpm dev:setup` generates them:
 | `pnpm db:start` | Install (first run only), start PostgreSQL, create `daktari_dev` + `daktari_test` |
 | `pnpm db:stop` | Stop the server |
 | `pnpm db:status` | Print paths, port, running state, databases |
-| `pnpm db:reset` | Drop and recreate both databases (then `db:push` + `db:seed`) |
-| `pnpm db:push` | Apply the Prisma schema |
+| `pnpm db:reset` | Drop and recreate both databases (then `db:migrate` + `db:seed`) |
+| `pnpm db:migrate` | Apply `prisma/migrations` (dev; `-- --name <change>` creates a new migration) |
+| `pnpm db:deploy` | Apply pending migrations without prompting (staging/production) |
+| `pnpm db:migrate:status` | Which migrations are applied |
+| `pnpm db:migrations:check` | Fail if `schema.prisma` has changes no migration contains |
 | `pnpm db:seed` | Seed Tanzanian test data (idempotent) |
 
 Binaries live in `.local/pg16`, data in `.local/pgdata`, log at `.local/pg.log`
@@ -134,7 +137,8 @@ Binaries live in `.local/pg16`, data in `.local/pgdata`, log at `.local/pg.log`
 
 The API server's integration tests only run when `TEST_DATABASE_URL` points at a
 migrated database (`pnpm test` skips them, with a notice). One command does
-everything against the portable Postgres:
+everything against the portable Postgres — it rebuilds `daktari_test` from the
+migrations (`prisma migrate reset`, so the test DB is wiped each run):
 
 ```powershell
 pnpm test:integration
@@ -203,7 +207,7 @@ requirement, so Android is the primary target here.
 | `pnpm dev:doctor` says `.env` missing | `pnpm dev:setup` |
 | `Environment variable not found: DATABASE_URL` | `.env` is missing or `DATABASE_URL` is blank — re-run `pnpm dev:setup` after deleting `.env` |
 | `pnpm db:start` fails to bind | Something else holds port 5432 — `pnpm db:status`, or stop the other server |
-| `db:push` says the database does not exist | `pnpm db:start` (it creates both databases) |
+| `db:migrate` says the database does not exist | `pnpm db:start` (it creates both databases) |
 | Login says the OTP is wrong | The code prints in the **API server console** (ConsoleSms), not by SMS |
 | Screening returns 503 `AI_NOT_CONFIGURED` | Expected without the key for `AI_PROVIDER`; everything else works |
 | Portal signs you out on reload | Expected only if the refresh cookie is gone; the access token is memory-only by design |

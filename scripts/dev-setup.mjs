@@ -133,7 +133,7 @@ async function main() {
   console.log(`Created ${path.relative(REPO_ROOT, ENV_PATH)} with freshly generated secrets.`);
   console.log('\nNext:');
   console.log('  pnpm db:start    # start local PostgreSQL, create databases');
-  console.log('  pnpm db:push     # apply the Prisma schema');
+  console.log('  pnpm db:migrate  # apply prisma/migrations');
   console.log('  pnpm db:seed     # seed Tanzanian test data');
   console.log('  pnpm dev:doctor  # verify everything above');
 }

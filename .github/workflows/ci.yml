@@ -87,5 +87,11 @@ jobs:
       - name: Build API dependencies
         run: pnpm turbo run build --filter=@daktari/api-server^...
 
+      # A schema.prisma change without a migration fails here (Prisma replays
+      # the migrations into daktari_test as its shadow — wiped next anyway).
+      - name: Migrations match schema.prisma
+        run: pnpm db:migrations:check
+
+      # Rebuilds daktari_test from prisma/migrations, then runs the suite.
       - name: Integration tests
         run: pnpm test:integration

@@ -19,16 +19,24 @@ if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;
 }
 
+export class MigrationsNotAppliedError extends Error {
+  constructor(missing: string) {
+    super(
+      `database is not migrated (${missing} missing) — run \`pnpm db:migrate\` (dev) or ` +
+        '`pnpm db:deploy` (staging/production) and restart',
+    );
+    this.name = 'MigrationsNotAppliedError';
+  }
+}
+
 /**
- * Prisma cannot declare partial unique indexes, so slot exclusivity for
- * bookings is created here: one active appointment per (doctorId, scheduledAt).
- * Idempotent — call at server startup and in integration test setup, after
- * `prisma db push` / migrations.
+ * Slot exclusivity for bookings is a partial unique index Prisma cannot
+ * declare; it is created by migration 1_booking_slot_index (no longer at
+ * startup). The server calls this at boot and refuses to start without it —
+ * booking without the arbiter would allow double-booked slots.
  */
-export async function ensureBookingSlotIndex(client: PrismaClient = prisma): Promise<void> {
-  await client.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "uniq_appointment_active_slot"
-     ON "Appointment" ("doctorId", "scheduledAt")
-     WHERE "status" NOT IN ('CANCELLED', 'NO_SHOW')`,
-  );
+export async function assertBookingSlotIndex(client: PrismaClient = prisma): Promise<void> {
+  const rows = await client.$queryRaw<Array<{ indexname: string }>>`
+    SELECT indexname FROM pg_indexes WHERE indexname = 'uniq_appointment_active_slot'`;
+  if (rows.length === 0) throw new MigrationsNotAppliedError('uniq_appointment_active_slot');
 }

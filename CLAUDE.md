@@ -163,8 +163,17 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
 - **Booking concurrency:** the database is the arbiter — a partial unique index
   `uniq_appointment_active_slot` on Appointment (doctorId, scheduledAt)
   WHERE status NOT IN (CANCELLED, NO_SHOW). Prisma cannot declare partial
-  indexes, so `ensureBookingSlotIndex()` (exported by `@daktari/db`) creates it
-  at server startup / integration-test setup, after `prisma db push`.
+  indexes, so it lives in the SQL migration `1_booking_slot_index`; the server
+  only CHECKS it at startup (`assertBookingSlotIndex()`, refuses to boot on an
+  unmigrated DB).
+- **Migrations (13b):** `packages/db/prisma/migrations` owns the schema —
+  `0_init` (baseline), then one folder per change. Never `db push`. Dev:
+  `pnpm db:migrate` (= `migrate dev`; `--name <change>` for a new one);
+  staging/production: `pnpm db:deploy` (= `migrate deploy`). Integration tests
+  rebuild `daktari_test` with `prisma migrate reset` (destructive — only ever a
+  `*_test` DB). `pnpm db:migrations:check` fails when schema.prisma has changes
+  no migration contains (runs in CI). Prisma refuses `migrate reset` from an AI
+  agent without the user's explicit consent — ask, never work around it.
 
 ## Switching AI provider
 
@@ -272,6 +281,8 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
 
 - `pnpm build` / `pnpm typecheck` / `pnpm lint` / `pnpm test` — turbo pipelines
 - `pnpm --filter @daktari/db db:generate` — regenerate Prisma client
+- `pnpm db:migrate` / `pnpm db:deploy` / `pnpm db:migrate:status` /
+  `pnpm db:migrations:check` — migrations (see Conventions)
 - `pnpm --filter @daktari/db db:seed` — seed realistic Tanzanian test data
 - Prisma CLI config lives in `packages/db/prisma.config.ts` (not
   `package.json#prisma`); it loads `.env` via dotenv explicitly.

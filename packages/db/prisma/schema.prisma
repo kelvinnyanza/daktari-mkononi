@@ -893,7 +893,9 @@ model DoctorPayment {
   periodStart DateTime
   periodEnd   DateTime
   status      DoctorPaymentStatus @default(PENDING)
-  reference   String?
+  // consultation:<id> | refund-adjustment:<paymentId> | … — one row per
+  // reference, enforced by the database (createIfMissing relies on it).
+  reference   String?             @unique
   paidAt      DateTime?
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt

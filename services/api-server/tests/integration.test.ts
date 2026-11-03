@@ -45,8 +45,10 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
     db = await import('@daktari/db');
     const { buildAppWithServices } = await import('../src/app.js');
 
-    // The partial unique index is created outside Prisma's schema.
-    await db.ensureBookingSlotIndex();
+    // The schema — including the partial booking index — comes from the
+    // migrations (scripts/test-integration.mjs runs `prisma migrate reset`);
+    // nothing is created here. This fails if a migration is missing.
+    await db.assertBookingSlotIndex();
 
     await db.prisma.doctorPayment.deleteMany({});
     await db.prisma.payoutItem.deleteMany({});
@@ -998,5 +1000,41 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
     expect(rows.every((row) => row.status === 'PAID' && row.payoutItemId === item.id)).toBe(true);
     const batch = await db.prisma.payoutBatch.findUniqueOrThrow({ where: { id: draft.id } });
     expect(batch.status).toBe('COMPLETED');
+  });
+
+  it('migrations own the schema: partial slot index present; DoctorPayment.reference unique under a real race', async () => {
+    await db.assertBookingSlotIndex();
+    const doctorUser = await db.prisma.user.create({
+      data: {
+        phone: '+255700009613',
+        passwordHash: 'x',
+        fullName: 'Dr Race Test',
+        role: 'DOCTOR',
+        phoneVerifiedAt: new Date(),
+        doctor: {
+          create: {
+            tmcRegistrationNumber: 'TMC/REG/77007',
+            specialty: 'GENERAL_PRACTICE',
+            yearsOfExperience: 2,
+            consultationFeeTzs: 15_000,
+            verificationStatus: 'APPROVED',
+          },
+        },
+      },
+      include: { doctor: true },
+    });
+    const now = new Date();
+    const accrue = () =>
+      db.doctorPaymentRepository.createIfMissing({
+        doctorId: doctorUser.doctor!.id,
+        amountTzs: 11_460,
+        reference: 'consultation:race-13b',
+        paymentId: null,
+        periodStart: now,
+        periodEnd: now,
+      });
+    const results = await Promise.all([accrue(), accrue(), accrue(), accrue()]);
+    expect(results.filter((row) => row !== null)).toHaveLength(1);
+    expect(await db.prisma.doctorPayment.count({ where: { reference: 'consultation:race-13b' } })).toBe(1);
   });
 });

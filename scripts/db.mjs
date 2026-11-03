@@ -167,7 +167,7 @@ function start() {
     throw new Error(`pg_ctl start failed (see ${PG_LOG})`);
   }
   // pg_ctl returned before the server finished starting; poll for readiness so
-  // the very next command in `pnpm db:start && pnpm db:push` can connect.
+  // the very next command in `pnpm db:start && pnpm db:migrate` can connect.
   if (!waitUntilReady()) {
     throw new Error(`PostgreSQL did not become ready within 30s. See ${PG_LOG}`);
   }
@@ -242,7 +242,7 @@ async function main() {
       process.exitCode = status();
       break;
     case 'reset':
-      // Drop and recreate both databases — schema push and seed follow.
+      // Drop and recreate both databases — `pnpm db:migrate` and seed follow.
       if (!isRunning()) start();
       for (const name of [DEV_DB, TEST_DB]) {
         run(exe('dropdb'), ['-U', PG_USER, '-p', String(PG_PORT), '--if-exists', name]);

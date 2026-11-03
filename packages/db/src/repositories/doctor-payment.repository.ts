@@ -1,10 +1,16 @@
-import type { DoctorPayment, DoctorPaymentStatus, Payment } from '@prisma/client';
+import { Prisma, type DoctorPayment, type DoctorPaymentStatus, type Payment } from '@prisma/client';
 import { prisma } from '../client.js';
 
 /** The patient payment's frozen fee breakdown, shown next to each earning. */
 export type EarningPaymentBreakdown = Pick<
   Payment,
-  'amountTzs' | 'platformFeeTzs' | 'vatTzs' | 'doctorAmountTzs' | 'commissionBps' | 'vatBps' | 'vatMode'
+  | 'amountTzs'
+  | 'platformFeeTzs'
+  | 'vatTzs'
+  | 'doctorAmountTzs'
+  | 'commissionBps'
+  | 'vatBps'
+  | 'vatMode'
 >;
 
 export type DoctorEarningRow = DoctorPayment & { payment: EarningPaymentBreakdown | null };
@@ -45,18 +51,26 @@ export const doctorPaymentRepository = {
       where: { reference: input.reference },
     });
     if (existing) return null;
-    return prisma.doctorPayment.create({
-      data: {
-        doctorId: input.doctorId,
-        amountTzs: input.amountTzs,
-        reference: input.reference,
-        paymentId: input.paymentId,
-        kind: input.kind ?? 'EARNING',
-        note: input.note ?? null,
-        periodStart: input.periodStart,
-        periodEnd: input.periodEnd,
-      },
-    });
+    // The unique index on reference settles a race between two callers that
+    // both passed the find above: the loser gets null, exactly like a replay.
+    return prisma.doctorPayment
+      .create({
+        data: {
+          doctorId: input.doctorId,
+          amountTzs: input.amountTzs,
+          reference: input.reference,
+          paymentId: input.paymentId,
+          kind: input.kind ?? 'EARNING',
+          note: input.note ?? null,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+        },
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
+          return null;
+        throw error;
+      });
   },
 
   /** The consultation earning that came from this patient payment, if any. */
