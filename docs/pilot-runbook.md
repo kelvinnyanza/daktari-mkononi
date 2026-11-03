@@ -356,3 +356,32 @@ One-time AWS setup (region **af-south-1**):
 5. `.env`: `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
    `AWS_REGION=af-south-1`. The production guard refuses to start without
    `S3_BUCKET`.
+
+---
+
+## Appendix — Android permissions (13b; changing them needs a new EAS build)
+
+Source of truth: `apps/mobile/app.json` (`android.permissions` +
+`android.blockedPermissions`), locked by
+`apps/mobile/src/testing/android-permissions.test.ts`. Verify the merged
+result without generating `android/` with
+`npx expo config --type introspect` in `apps/mobile`.
+
+| Kept | Why |
+| --- | --- |
+| `CAMERA`, `RECORD_AUDIO` | Video / audio consultations (asked at first call) |
+| `MODIFY_AUDIO_SETTINGS` | WebRTC switches speaker / earpiece during a call |
+| `INTERNET`, `ACCESS_NETWORK_STATE` | API + Daily; WebRTC reacts to network changes |
+| `WAKE_LOCK` | Screen/CPU stay on during a call (expo-keep-awake, Daily) |
+| `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CAMERA`, `FOREGROUND_SERVICE_MICROPHONE` | Daily's ongoing-meeting service keeps the call alive when the app is in the background (typed services are mandatory on Android 14+) |
+| `POST_NOTIFICATIONS` | Android 13+: lets that service show its "call in progress" notification |
+
+| Removed (blocked) | Added by | Why it goes |
+| --- | --- | --- |
+| `SYSTEM_ALERT_WINDOW` ("display over other apps") | Daily + WebRTC plugins | No overlay/picture-in-picture in the app |
+| `BLUETOOTH` | WebRTC plugin, old app.json | Legacy (Android ≤ 11 only). Bluetooth headsets still work as the system audio route; in-app *selection* of a BT device on Android ≤ 11 would need it back |
+| `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` | Expo template (Daily's README lists WRITE) | The app reads/writes no shared files; calls are not recorded on the device |
+| `VIBRATE` | Expo template | Nothing in the app vibrates |
+
+All of these are dangerous-looking on the Play listing, which is why they are
+removed rather than left "just in case".
