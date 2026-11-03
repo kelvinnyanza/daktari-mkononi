@@ -1,0 +1,3 @@
+# Prisma checksums every migration.sql: a CRLF checkout on Windows would make
+# already-applied migrations look modified. Keep them byte-identical everywhere.
+packages/db/prisma/migrations/** text eol=lf
