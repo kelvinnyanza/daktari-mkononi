@@ -62,7 +62,7 @@ Screening runs on Anthropic by default. While the Anthropic account is
 pending, it can run on OpenAI; switching back is the same one line.
 
 1. Keep **both** keys in `.env` and leave `AI_MODEL=` blank (each provider then
-   uses its own default: `claude-sonnet-4-6` / `gpt-6.1-sol`).
+   uses its own default: `claude-sonnet-5-5` / `gpt-6.1-sol`).
 2. Test the target before switching (PowerShell):
    `$env:AI_PROVIDER='openai'; pnpm smoke:check; Remove-Item Env:AI_PROVIDER`
    It must print `[PASS] provider=openai model=gpt-6.1-sol`.

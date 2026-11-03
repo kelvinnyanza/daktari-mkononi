@@ -98,7 +98,7 @@ export const envSchema = z.object({
   // keys may be present at once — switching is then one variable.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
-  // Unset ⇒ the selected provider's own default (claude-sonnet-4-6 /
+  // Unset ⇒ the selected provider's own default (claude-sonnet-5-5 /
   // gpt-6.1-sol). Leave it blank so AI_PROVIDER alone switches backends; a
   // model id belonging to the other provider is rejected below.
   AI_MODEL: z.string().min(1).optional(),

@@ -142,7 +142,7 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
   the intended provider; OpenAI is a **temporary** stand-in while Anthropic
   account verification is pending. Never delete or weaken `AnthropicProvider`.
 - Keep both `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` set and **`AI_MODEL`
-  blank** (blank ⇒ the provider's default: `claude-sonnet-4-6` /
+  blank** (blank ⇒ the provider's default: `claude-sonnet-5-5` /
   `gpt-6.1-sol`); a switch is then one variable plus an API restart. A
   `claude-*` model with `openai` (or the reverse) fails env validation.
 - Everything provider-independent sits above the `AIProvider` interface
@@ -151,6 +151,12 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
   limit and before any provider call), caps, output gate, and the
   structured-output parse/retry against `triageCheckSchema`. Adapters only
   translate a request; `server.ts` builds one via `createAiProvider`.
+- The Anthropic adapter has a per-model profile too (`anthropicModelProfile`):
+  Claude Sonnet 5.5 (the default) takes no `temperature`/`top_p`/`top_k` (400)
+  and runs with `thinking: {type: "between_tools"}` (its "off"; omitting
+  `thinking` there means adaptive thinking ON, which would eat the 500-token
+  triage budget). A `stop_reason: "refusal"` is a typed PROVIDER_ERROR.
+  smoke:check exercises the standby provider too (WARN on failure).
 - The OpenAI adapter uses the Responses API with **`store: false`** (that API
   defaults to retaining responses) and a per-model parameter profile
   (`openAiModelProfile`): models without reasoning effort `none` get effort

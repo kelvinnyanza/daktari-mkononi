@@ -18,7 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.110.0",
+    "@anthropic-ai/sdk": "^0.137.0",
     "openai": "^7.45.1",
     "zod": "^3.24.0"
   },

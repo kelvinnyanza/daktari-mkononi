@@ -5,9 +5,11 @@
  *
  *   1. which provider keys are set / blank in the root .env (never the values)
  *   2. the API answers GET /health (and what /health/ready reports)
- *   3. AI_PROVIDER (anthropic | openai | fake) → one tiny request through the
- *      real @daktari/ai adapter, so it sends exactly what the server sends
- *      (OpenAI: store:false + the model's parameter profile)
+ *   3. One tiny request through the real @daktari/ai adapter for the selected
+ *      AI_PROVIDER (a failure FAILs) AND the standby provider (a failure WARNs),
+ *      so it sends exactly what the server sends (OpenAI: store:false + the
+ *      model's parameter profile; Anthropic: the model profile — Sonnet 5.5
+ *      gets thinking between_tools and no sampling parameters)
  *   4. DAILY_CO_API_KEY set  → create a throwaway private room + meeting
  *      token, JOIN it from a headless Edge/Chrome (camera and mic off, real
  *      daily-js), leave, delete the room. A join is what surfaces account /
@@ -157,16 +159,16 @@ function describeAiError(error) {
   return redact(`${code}${detail}${status}${type ? ` ${type}` : ''}${hint}`);
 }
 
+const warn = (label, detail) => line('WARN', label, detail);
+
+/**
+ * One tiny request through the real adapter for BOTH real providers: the
+ * selected one (a failure fails the check) and the standby one (a failure is
+ * a WARN — switching back must be just AI_PROVIDER=<other>, so it is checked
+ * too, without blocking a device test on the provider in use).
+ */
 async function ai() {
   console.log(`\nAI screening (AI_PROVIDER=${AI_PROVIDER})`);
-  let distEntry;
-  try {
-    distEntry = buildSmokeAi();
-  } catch (error) {
-    return fail('build', error.message);
-  }
-  const { createAiProvider } = await import(pathToFileURL(distEntry).href);
-
   if (!['anthropic', 'openai', 'fake'].includes(AI_PROVIDER)) {
     return fail('provider', `unknown AI_PROVIDER "${AI_PROVIDER}" (anthropic | openai | fake)`);
   }
@@ -176,36 +178,56 @@ async function ai() {
     return fail('provider', `AI_MODEL "${model}" does not belong to AI_PROVIDER=${AI_PROVIDER} — blank it to use the provider default`);
   }
 
-  let provider;
+  let distEntry;
   try {
-    provider = createAiProvider({
-      provider: AI_PROVIDER,
-      model,
-      anthropicApiKey: env.ANTHROPIC_API_KEY,
-      openaiApiKey: env.OPENAI_API_KEY,
-      production: env.NODE_ENV === 'production',
-    });
+    distEntry = buildSmokeAi();
   } catch (error) {
-    return fail('provider', describeAiError(error));
+    return fail('build', error.message);
   }
-  if (provider === null) {
-    return line('SKIP', `provider=${AI_PROVIDER}`, `${AI_KEY_VAR} blank — screening answers 503 AI_NOT_CONFIGURED`);
-  }
+  const { createAiProvider } = await import(pathToFileURL(distEntry).href);
 
-  const label = `provider=${provider.name} model=${provider.model}`;
-  try {
-    const response = await provider.complete({
-      system: 'You are a connectivity check.',
-      messages: [{ role: 'user', content: 'Reply with the single word: ok' }],
-      maxTokens: 16, // only proving the key + model id + parameters are accepted
-    });
-    if (provider.name === 'fake') {
-      pass(label, 'dev fake, no network call');
-      return console.log('  ! canned [JARIBIO] replies — set AI_PROVIDER=anthropic|openai for the device test');
+  const order = [AI_PROVIDER, ...['openai', 'anthropic'].filter((name) => name !== AI_PROVIDER)];
+  for (const name of order) {
+    const selected = name === AI_PROVIDER;
+    const role = selected ? 'selected' : 'standby';
+    const keyVar = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY' }[name];
+    const bad = selected ? fail : warn;
+
+    let provider;
+    try {
+      provider = createAiProvider({
+        provider: name,
+        // AI_MODEL applies to the selected provider only; the standby runs its default.
+        model: selected ? model : undefined,
+        anthropicApiKey: env.ANTHROPIC_API_KEY,
+        openaiApiKey: env.OPENAI_API_KEY,
+        production: env.NODE_ENV === 'production',
+      });
+    } catch (error) {
+      bad(`${role} provider=${name}`, describeAiError(error));
+      continue;
     }
-    pass(label, `stop=${response.stopReason}, ${response.usage.inputTokens}+${response.usage.outputTokens} tokens`);
-  } catch (error) {
-    fail(label, describeAiError(error));
+    if (provider === null) {
+      line(selected ? 'SKIP' : 'WARN', `${role} provider=${name}`, `${keyVar} blank${selected ? ' — screening answers 503 AI_NOT_CONFIGURED' : ' — switching to it would answer 503'}`);
+      continue;
+    }
+
+    const label = `${role} provider=${provider.name} model=${provider.model}`;
+    try {
+      const response = await provider.complete({
+        system: 'You are a connectivity check.',
+        messages: [{ role: 'user', content: 'Reply with the single word: ok' }],
+        maxTokens: 16, // only proving the key + model id + parameters are accepted
+      });
+      if (provider.name === 'fake') {
+        pass(label, 'dev fake, no network call');
+        console.log('  ! canned [JARIBIO] replies — set AI_PROVIDER=anthropic|openai for the device test');
+        continue;
+      }
+      pass(label, `stop=${response.stopReason}, ${response.usage.inputTokens}+${response.usage.outputTokens} tokens`);
+    } catch (error) {
+      bad(label, describeAiError(error));
+    }
   }
 }
 
