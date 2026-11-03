@@ -133,9 +133,9 @@ export const sw = {
   'records.none': 'Huna kumbukumbu za afya bado',
 
   // Doctor placeholder
-  'doctor.comingSoon.title': 'Programu ya madaktari inakuja',
-  'doctor.comingSoon.body':
-    'Kwa sasa, huduma za madaktari zinapatikana kupitia tovuti. Programu ya simu kwa madaktari inakuja hivi karibuni.',
+  'doctor.portal.title': 'Madaktari hutumia tovuti',
+  'doctor.portal.body':
+    'Jisajili, pakia leseni yako ya TMC, weka ratiba na fanya mashauriano kwenye tovuti ya Daktari Mkononi kwa kompyuta. Ingia kwa namba ya simu na nenosiri hili hili.',
 
   // Weekdays (short, for the date strip)
   'weekday.0': 'Jpl',
@@ -531,7 +531,7 @@ export const en: Record<TranslationKey, string> = {
   'rating.yours': 'Your rating',
   'rating.skip': 'Skip',
   'rating.later': 'You can rate later from Appointment details.',
-  'doctor.comingSoon.title': 'Doctor app coming soon',
-  'doctor.comingSoon.body':
-    'Doctor services are currently available through the website. The mobile app for doctors is coming soon.',
+  'doctor.portal.title': 'Doctors use the web portal',
+  'doctor.portal.body':
+    'Register, upload your TMC licence, set your schedule and run consultations on the Daktari Mkononi web portal from a computer. Sign in with this same phone number and password.',
 } as const;

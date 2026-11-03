@@ -87,6 +87,24 @@ export const DOCUMENT_FIELD_TO_TYPE = {
 /** tmc_cert + degree + id are required for DOCUMENTS_SUBMITTED; police_clearance is optional. */
 export const REQUIRED_DOCUMENT_TYPES = ['TMC_CERTIFICATE', 'MEDICAL_DEGREE', 'NATIONAL_ID'] as const;
 
+/** POST /doctors/me/documents/upload-url — ask for a direct-upload target. */
+export const documentUploadUrlSchema = z.object({
+  document: doctorDocumentFieldSchema,
+  fileName: z.string().trim().min(3).max(200),
+  contentType: z.string().trim().min(3).max(100),
+  /** Bytes; the storage policy enforces it again on the upload itself. */
+  size: z.number().int().positive(),
+});
+export type DocumentUploadUrlInput = z.infer<typeof documentUploadUrlSchema>;
+
+/** POST /doctors/me/documents/complete — the client finished the direct upload. */
+export const documentUploadCompleteSchema = z.object({
+  document: doctorDocumentFieldSchema,
+  key: z.string().min(1).max(255),
+  fileName: z.string().trim().min(3).max(200),
+});
+export type DocumentUploadCompleteInput = z.infer<typeof documentUploadCompleteSchema>;
+
 export const documentReviewSchema = z.object({
   document: doctorDocumentFieldSchema,
   status: z.enum(['APPROVED', 'REJECTED']),

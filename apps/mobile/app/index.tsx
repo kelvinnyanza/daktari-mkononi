@@ -11,5 +11,5 @@ export default function Index(): React.JSX.Element {
   if (role === 'PATIENT') {
     return <Redirect href="/(patient)/home" />;
   }
-  return <Redirect href="/doctor-coming-soon" />;
+  return <Redirect href="/doctor-portal" />;
 }

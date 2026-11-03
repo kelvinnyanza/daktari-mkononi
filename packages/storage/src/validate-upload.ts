@@ -65,23 +65,22 @@ export interface ValidatedUpload {
   contentType: string;
 }
 
+/** Longest magic-byte prefix any allowed kind needs (webp: RIFF....WEBP). */
+export const UPLOAD_SNIFF_BYTES = 16;
+
 /**
- * Validate an upload or throw UploadValidationError.
- *
- * - allowlist: pdf, jpg/jpeg, png, webp
- * - max 10 MB, non-empty
- * - double extensions rejected (report.pdf.exe, scan.php.jpg)
- * - magic bytes must match the extension — a renamed .exe never passes
+ * Name + declared type + size checks shared by both upload paths. Returns the
+ * kind the bytes must then match.
  */
-export function validateUpload(input: {
+export function validateUploadDeclaration(input: {
   fileName: string;
   mimeType: string;
-  data: Buffer;
+  size: number;
 }): ValidatedUpload {
-  if (input.data.length === 0) {
+  if (input.size <= 0) {
     throw new UploadValidationError('EMPTY_FILE', 'file is empty');
   }
-  if (input.data.length > MAX_UPLOAD_BYTES) {
+  if (input.size > MAX_UPLOAD_BYTES) {
     throw new UploadValidationError('FILE_TOO_LARGE', 'file exceeds the 10 MB limit');
   }
 
@@ -115,12 +114,37 @@ export function validateUpload(input: {
       `declared type ${input.mimeType} does not match .${extension}`,
     );
   }
-  if (!spec.matches(input.data)) {
+  return { kind, extension: spec.extensions[0]!, contentType: spec.mimeTypes[0]! };
+}
+
+/** The stored bytes (their first UPLOAD_SNIFF_BYTES suffice) must be what the name claims. */
+export function assertMagicBytes(kind: AllowedUploadKind, head: Buffer): void {
+  if (!KINDS[kind].matches(head)) {
     throw new UploadValidationError(
       'CONTENT_MISMATCH',
       `file content does not look like ${kind} (magic bytes mismatch)`,
     );
   }
+}
 
-  return { kind, extension: spec.extensions[0]!, contentType: spec.mimeTypes[0]! };
+/**
+ * Validate an upload or throw UploadValidationError.
+ *
+ * - allowlist: pdf, jpg/jpeg, png, webp
+ * - max 10 MB, non-empty
+ * - double extensions rejected (report.pdf.exe, scan.php.jpg)
+ * - magic bytes must match the extension — a renamed .exe never passes
+ */
+export function validateUpload(input: {
+  fileName: string;
+  mimeType: string;
+  data: Buffer;
+}): ValidatedUpload {
+  const validated = validateUploadDeclaration({
+    fileName: input.fileName,
+    mimeType: input.mimeType,
+    size: input.data.length,
+  });
+  assertMagicBytes(validated.kind, input.data);
+  return validated;
 }

@@ -1,4 +1,5 @@
 import type { Buffer } from 'node:buffer';
+import { randomBytes } from 'node:crypto';
 import type { Doctor, DoctorDocumentType, DoctorWithUser, VerificationUpdate } from '@daktari/db';
 import {
   DOCUMENT_FIELD_TO_TYPE,
@@ -8,7 +9,15 @@ import {
   type DoctorVerificationDecisionInput,
   type SetDoctorScheduleInput,
 } from '@daktari/schemas';
-import { UploadValidationError, validateUpload, type StoragePort } from '@daktari/storage';
+import {
+  MAX_UPLOAD_BYTES,
+  UPLOAD_SNIFF_BYTES,
+  UploadValidationError,
+  assertMagicBytes,
+  validateUpload,
+  validateUploadDeclaration,
+  type StoragePort,
+} from '@daktari/storage';
 import { ApiError, msg } from '../../lib/errors.js';
 import { eatDayOfWeek, eatDayRangeUtc } from '../../lib/eat-time.js';
 import type {
@@ -24,6 +33,16 @@ import { findVerificationTransition, type VerificationEvent } from './verificati
 
 /** Admin document-viewer links expire quickly — long enough to read a scan. */
 const DOCUMENT_URL_TTL_SECONDS = 15 * 60;
+/** A direct-upload target is valid this long. */
+const DOCUMENT_UPLOAD_TTL_SECONDS = 5 * 60;
+
+const uploadRejected = (error: UploadValidationError): ApiError =>
+  new ApiError(
+    400,
+    error.code,
+    msg('Faili halikubaliki — angalia aina na ukubwa wake', 'File rejected — check its type and size'),
+    { detail: error.message },
+  );
 
 const DOCTOR_NOT_FOUND = (): ApiError =>
   new ApiError(404, 'DOCTOR_NOT_FOUND', msg('Daktari hajapatikana', 'Doctor not found'));
@@ -168,27 +187,126 @@ export class DoctorService {
         data: file.data,
       });
     } catch (error) {
-      if (error instanceof UploadValidationError) {
-        throw new ApiError(
-          400,
-          error.code,
-          msg('Faili halikubaliki — angalia aina na ukubwa wake', 'File rejected — check its type and size'),
-          { detail: error.message },
-        );
-      }
+      if (error instanceof UploadValidationError) throw uploadRejected(error);
       throw error;
     }
 
-    const type = DOCUMENT_FIELD_TO_TYPE[field] as DoctorDocumentType;
-    const key = `doctor-docs/${doctor.id}/${field}.${validated.extension}`;
+    const key = DoctorService.documentKey(doctor.id, field, validated.extension);
     await this.deps.storage.put(key, file.data, validated.contentType);
+    return this.recordDocument(doctor, userId, field, key, file.fileName, validated.contentType);
+  }
+
+  /** `doctor-docs/<doctorId>/<field>-<random>.<ext>`: a fresh key per upload,
+   * so a half-finished upload can never overwrite the document on file. */
+  private static documentKey(doctorId: string, field: DoctorDocumentField, extension: string): string {
+    return `doctor-docs/${doctorId}/${field}-${randomBytes(8).toString('hex')}.${extension}`;
+  }
+
+  /**
+   * Step 1 of a direct upload (portal): validate what the doctor says they
+   * will send (name, type, size) and hand back a presigned target — S3 in
+   * production, the API's local upload route in dev. The bytes never pass
+   * through the API; the storage policy pins the key, type and size cap.
+   */
+  async createDocumentUploadUrl(
+    userId: string,
+    input: { document: DoctorDocumentField; fileName: string; contentType: string; size: number },
+  ): Promise<{
+    key: string;
+    url: string;
+    method: 'POST';
+    fields: Record<string, string>;
+    contentType: string;
+    maxBytes: number;
+    expiresAt: Date;
+  }> {
+    const doctor = await this.ownDoctor(userId);
+    let validated;
+    try {
+      validated = validateUploadDeclaration({ fileName: input.fileName, mimeType: input.contentType, size: input.size });
+    } catch (error) {
+      if (error instanceof UploadValidationError) throw uploadRejected(error);
+      throw error;
+    }
+    const key = DoctorService.documentKey(doctor.id, input.document, validated.extension);
+    const upload = await this.deps.storage.createPresignedUpload({
+      key,
+      contentType: validated.contentType,
+      maxBytes: MAX_UPLOAD_BYTES,
+      ttlSeconds: DOCUMENT_UPLOAD_TTL_SECONDS,
+    });
+    return { key, ...upload };
+  }
+
+  /**
+   * Step 2: the client says the upload finished. Nothing it says is trusted:
+   * the key must be one this doctor could have been issued for this
+   * document, the object must exist within the size cap, and its first
+   * bytes must be what the file name claims. A file that fails is deleted.
+   */
+  async completeDocumentUpload(
+    userId: string,
+    input: { document: DoctorDocumentField; key: string; fileName: string },
+  ): Promise<{ document: { type: string; reviewStatus: string }; verificationStatus: string }> {
+    const doctor = await this.ownDoctor(userId);
+    const prefix = `doctor-docs/${doctor.id}/${input.document}-`;
+    if (!input.key.startsWith(prefix) || !/^[a-f0-9]{16}\.[a-z]{3,4}$/.test(input.key.slice(prefix.length))) {
+      throw new ApiError(
+        400,
+        'UPLOAD_KEY_INVALID',
+        msg('Upakiaji huu si wako au si sahihi', 'This upload does not belong to this document'),
+      );
+    }
+    const stored = await this.deps.storage.stat(input.key);
+    if (stored === null) {
+      throw new ApiError(
+        409,
+        'UPLOAD_NOT_FOUND',
+        msg('Faili halijafika bado — pakia tena', 'The file has not arrived — upload it again'),
+      );
+    }
+    let validated;
+    try {
+      validated = validateUploadDeclaration({
+        fileName: input.fileName,
+        mimeType: stored.contentType ?? '',
+        size: stored.size,
+      });
+      if (!input.key.endsWith(`.${validated.extension}`)) {
+        throw new UploadValidationError('CONTENT_MISMATCH', 'file name does not match the upload');
+      }
+      assertMagicBytes(validated.kind, await this.deps.storage.readHead(input.key, UPLOAD_SNIFF_BYTES));
+    } catch (error) {
+      if (error instanceof UploadValidationError) {
+        await this.deps.storage.delete(input.key).catch(() => undefined);
+        throw uploadRejected(error);
+      }
+      throw error;
+    }
+    return this.recordDocument(doctor, userId, input.document, input.key, input.fileName, validated.contentType);
+  }
+
+  /** Shared tail of both upload paths: record, drop the replaced file, maybe move to review. */
+  private async recordDocument(
+    doctor: Doctor,
+    userId: string,
+    field: DoctorDocumentField,
+    key: string,
+    fileName: string,
+    contentType: string,
+  ): Promise<{ document: { type: string; reviewStatus: string }; verificationStatus: string }> {
+    const type = DOCUMENT_FIELD_TO_TYPE[field] as DoctorDocumentType;
+    const previous = (await this.deps.doctorDocuments.listByDoctor(doctor.id)).find((doc) => doc.type === type);
     const document = await this.deps.doctorDocuments.upsertForType({
       doctorId: doctor.id,
       type,
       fileKey: key,
-      fileName: file.fileName,
-      mimeType: validated.contentType,
+      fileName,
+      mimeType: contentType,
     });
+    if (previous !== undefined && previous.fileKey !== key) {
+      await this.deps.storage.delete(previous.fileKey).catch(() => undefined);
+    }
 
     // Automatic transition once the required set (tmc_cert + degree + id) is present.
     let status = doctor.verificationStatus;

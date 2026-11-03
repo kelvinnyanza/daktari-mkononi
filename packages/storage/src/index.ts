@@ -17,8 +17,11 @@ export {
 export type { SignedFilePayload, SignedUploadPayload } from './signed-token.js';
 export {
   MAX_UPLOAD_BYTES,
+  UPLOAD_SNIFF_BYTES,
   UploadValidationError,
+  assertMagicBytes,
   validateUpload,
+  validateUploadDeclaration,
 } from './validate-upload.js';
 export type {
   AllowedUploadKind,

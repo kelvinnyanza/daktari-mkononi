@@ -8,6 +8,8 @@ import {
   doctorDirectoryQuerySchema,
   doctorRegistrationSchema,
   doctorSuspendSchema,
+  documentUploadCompleteSchema,
+  documentUploadUrlSchema,
   doctorVerificationDecisionSchema,
   idSchema,
   setDoctorScheduleSchema,
@@ -74,6 +76,21 @@ export function buildDoctorRoutes(
           data,
         });
       },
+    );
+
+    // Direct uploads (portal): presigned target, then a server-side check.
+    app.post(
+      '/me/documents/upload-url',
+      { preHandler: [authenticate, authorize('doctor:update:own')] },
+      async (request: FastifyRequest) =>
+        doctorService.createDocumentUploadUrl(request.auth!.userId, documentUploadUrlSchema.parse(request.body)),
+    );
+
+    app.post(
+      '/me/documents/complete',
+      { preHandler: [authenticate, authorize('doctor:update:own')] },
+      async (request: FastifyRequest) =>
+        doctorService.completeDocumentUpload(request.auth!.userId, documentUploadCompleteSchema.parse(request.body)),
     );
 
     app.get(

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -91,6 +92,9 @@ function LoginForm() {
             <Button type="submit" disabled={submitting} className="mt-1">
               {submitting ? t('login.submitting') : t('login.submit')}
             </Button>
+            <Link href="/register/doctor" className="text-center text-xs text-muted-foreground underline">
+              {t('login.registerDoctor')}
+            </Link>
           </form>
         </CardContent>
       </Card>

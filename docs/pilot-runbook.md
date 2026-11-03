@@ -133,8 +133,35 @@ app's `EXPO_PUBLIC_API_URL` must point at your machine's LAN IP (not
 | Role | Where it comes from |
 | --- | --- |
 | Platform admin | Seeded (`PLATFORM_ADMIN`). Signs in at the portal. |
-| Doctor | **The portal has no doctor registration yet** (planned). For the smoke test use a seeded doctor — `pnpm db:seed` creates four, already `APPROVED` (README "Seeded logins"), so step 1 can be skipped. To exercise verification itself, register a doctor via the API (`POST /api/v1/doctors/register`) and upload documents (`POST /api/v1/doctors/me/documents`); [`dev-doctor-flow.md`](./dev-doctor-flow.md) has the scripted doctor-side calls. (`pnpm dev:doctor` is the environment self-check, not a doctor-creation script.) |
+| Doctor | Self-registers on the portal (step 0b below). For a quick smoke test a seeded doctor works too — `pnpm db:seed` creates four, already `APPROVED` (README "Seeded logins"), so 0b and 1 can be skipped. (`pnpm dev:doctor` is the environment self-check, not a doctor-creation script.) |
 | Patient | Register in the mobile app (real OTP flow; the dev SMS adapter prints the code to the API console). |
+
+---
+
+## 0b. Doctor registers and uploads documents (portal)
+
+Doctors use the **web portal** (the mobile app only points them there).
+
+1. Open <http://localhost:3000/register/doctor> (or **"New doctor? Register
+   here"** on the sign-in page). Choose Kiswahili or English at the top.
+2. Fill in name, phone, password, **TMC registration number**, specialty,
+   years of experience and consultation fee (whole TZS, 5,000–500,000).
+   The form is checked with the same rules as the API.
+3. Enter the 6-digit code sent by SMS (in development it prints in the API
+   console). The doctor is signed in and lands on **Registration**.
+4. Upload the **TMC licence**, **medical degree / qualifications** and
+   **national ID** (police clearance is optional) — PDF, JPG, PNG or WebP up to
+   10 MB. Each file goes straight to storage (S3 in production, the API's
+   local upload route in development) and the API then checks its contents.
+   Each row shows its status: not uploaded / waiting for review / approved /
+   rejected (with the reviewer's note).
+5. Set up the **payout account** on the same page (it can be done while the
+   documents are reviewed).
+
+**Verify:** once the three required documents are in, the status reads
+"Documents submitted — waiting for review" and the doctor appears in the
+admin's verification queue. Until approved, the doctor's "Today" page sends
+them back to Registration.
 
 ---
 
@@ -144,7 +171,7 @@ app's `EXPO_PUBLIC_API_URL` must point at your machine's LAN IP (not
    You land on **Doctor verification**.
 2. The doctor must have submitted documents first — their status shows
    `DOCUMENTS_SUBMITTED`. If the queue is empty, the doctor has not uploaded
-   anything yet (`POST /api/v1/doctors/me/documents`).
+   the three required documents yet (step 0b).
 3. Press **Claim for review**. This is the concurrency guard: a second admin
    now sees "Under review by another admin" and cannot decide.
 4. Press **Open review**.
@@ -163,7 +190,8 @@ app's `EXPO_PUBLIC_API_URL` must point at your machine's LAN IP (not
 
 **Verify:** the doctor now appears under **Doctors** with status `APPROVED`, and
 they are visible in the patient app's doctor directory (which lists APPROVED
-doctors only).
+doctors only). The doctor receives an SMS for the approval or for the
+rejection (with your reason), and their Registration page shows the outcome.
 
 ---
 
@@ -267,7 +295,8 @@ portal's **Doctors** list. A patient can rate a consultation exactly once.
 
 | Symptom | Likely cause |
 | --- | --- |
-| Queue is empty | Doctor has not uploaded documents (`DOCUMENTS_SUBMITTED`). |
+| Queue is empty | Doctor has not uploaded the three required documents (`DOCUMENTS_SUBMITTED`). |
+| Document upload fails in production | The bucket's CORS rule does not allow `POST` from `APP_URL` (see the S3 appendix). |
 | "Approve doctor" stays disabled | A required document is unapproved, or you did not claim the review. |
 | No slots for a date | Schedule day disabled, or you are looking at a UTC date instead of the EAT one. |
 | Booking returns 409 `SLOT_TAKEN` | The partial unique index did its job — the slot really was taken. |

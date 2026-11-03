@@ -69,10 +69,16 @@ describe('document upload + automatic DOCUMENTS_SUBMITTED transition', () => {
     expect(deps.state.doctors.get(doctor.id)!.verificationStatus).toBe('DOCUMENTS_SUBMITTED');
   });
 
-  it('stores the file under a per-doctor key via the storage port', async () => {
+  it('stores the file under a fresh per-doctor key; a re-upload replaces (and deletes) the old file', async () => {
     const { user, doctor } = deps.seedDoctor();
     await service.uploadDocument(user.id, pdfUpload('tmc_cert', 'my cert.pdf'));
-    expect(deps.storage.blobs.has(`doctor-docs/${doctor.id}/tmc_cert.pdf`)).toBe(true);
+    const keys = (): string[] => [...deps.storage.blobs.keys()];
+    expect(keys()).toHaveLength(1);
+    expect(keys()[0]).toMatch(new RegExp(`^doctor-docs/${doctor.id}/tmc_cert-[a-f0-9]{16}\\.pdf$`));
+    const first = keys()[0];
+    await service.uploadDocument(user.id, pdfUpload('tmc_cert', 'new cert.pdf'));
+    expect(keys()).toHaveLength(1);
+    expect(keys()[0]).not.toBe(first);
   });
 
   it('rejects a fake extension by magic bytes (exe renamed to pdf)', async () => {
@@ -325,5 +331,97 @@ describe('schedules + availability through the service', () => {
 
     const { slots } = await service.availability(doctor.id, '2026-07-20');
     expect(slots.map((slot) => slot.startEat)).toEqual(['09:00', '10:00', '11:00', '11:30']);
+  });
+});
+
+
+describe('direct (presigned) document upload — portal flow', () => {
+  const PDF = Buffer.from('%PDF-1.7\n%fake scan');
+
+  it('upload-url → client POSTs to storage → complete: recorded, transition runs as with multipart', async () => {
+    const { user, doctor } = deps.seedDoctor();
+    for (const document of ['tmc_cert', 'degree', 'id'] as const) {
+      const target = await service.createDocumentUploadUrl(user.id, {
+        document,
+        fileName: `${document}.pdf`,
+        contentType: 'application/pdf',
+        size: PDF.length,
+      });
+      expect(target.key).toMatch(new RegExp(`^doctor-docs/${doctor.id}/${document}-[a-f0-9]{16}\\.pdf$`));
+      expect(target.method).toBe('POST');
+      expect(deps.storage.presignedUploads.at(-1)).toMatchObject({
+        key: target.key,
+        contentType: 'application/pdf',
+        maxBytes: 10 * 1024 * 1024,
+        ttlSeconds: 300,
+      });
+      await deps.storage.put(target.key, PDF, 'application/pdf'); // what the browser's POST does
+      await service.completeDocumentUpload(user.id, { document, key: target.key, fileName: `${document}.pdf` });
+    }
+    expect(deps.state.doctors.get(doctor.id)!.verificationStatus).toBe('DOCUMENTS_SUBMITTED');
+    const verification = await service.getVerification(user.id);
+    expect(verification.documents.map((doc) => doc.reviewStatus)).toEqual(['PENDING', 'PENDING', 'PENDING']);
+  });
+
+  it('rejects a bad declaration before issuing any URL', async () => {
+    const { user } = deps.seedDoctor();
+    await expectApiError(
+      service.createDocumentUploadUrl(user.id, { document: 'id', fileName: 'id.exe', contentType: 'application/pdf', size: 10 }),
+      'UNSUPPORTED_TYPE',
+    );
+    await expectApiError(
+      service.createDocumentUploadUrl(user.id, {
+        document: 'id',
+        fileName: 'id.pdf',
+        contentType: 'application/pdf',
+        size: 11 * 1024 * 1024,
+      }),
+      'FILE_TOO_LARGE',
+    );
+    expect(deps.storage.presignedUploads).toHaveLength(0);
+  });
+
+  it('complete: wrong magic bytes → rejected AND the object deleted; nothing recorded', async () => {
+    const { user, doctor } = deps.seedDoctor();
+    const target = await service.createDocumentUploadUrl(user.id, {
+      document: 'degree',
+      fileName: 'degree.pdf',
+      contentType: 'application/pdf',
+      size: EXE.length,
+    });
+    await deps.storage.put(target.key, EXE, 'application/pdf'); // type header lies; bytes do not
+    await expectApiError(
+      service.completeDocumentUpload(user.id, { document: 'degree', key: target.key, fileName: 'degree.pdf' }),
+      'CONTENT_MISMATCH',
+    );
+    expect(deps.storage.blobs.has(target.key)).toBe(false);
+    expect(await deps.doctorDocuments.listByDoctor(doctor.id)).toHaveLength(0);
+  });
+
+  it('complete: a key for another doctor or another document, or a missing object, is refused', async () => {
+    const { user } = deps.seedDoctor();
+    const { doctor: other } = deps.seedDoctor();
+    await expectApiError(
+      service.completeDocumentUpload(user.id, {
+        document: 'id',
+        key: `doctor-docs/${other.id}/id-0123456789abcdef.pdf`,
+        fileName: 'id.pdf',
+      }),
+      'UPLOAD_KEY_INVALID',
+    );
+    const target = await service.createDocumentUploadUrl(user.id, {
+      document: 'id',
+      fileName: 'id.pdf',
+      contentType: 'application/pdf',
+      size: PDF.length,
+    });
+    await expectApiError(
+      service.completeDocumentUpload(user.id, { document: 'degree', key: target.key, fileName: 'id.pdf' }),
+      'UPLOAD_KEY_INVALID',
+    );
+    await expectApiError(
+      service.completeDocumentUpload(user.id, { document: 'id', key: target.key, fileName: 'id.pdf' }),
+      'UPLOAD_NOT_FOUND',
+    );
   });
 });

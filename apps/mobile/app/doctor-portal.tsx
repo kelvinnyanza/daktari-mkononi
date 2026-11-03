@@ -4,15 +4,15 @@ import { useT } from '../src/i18n';
 import { clearTokens } from '../src/services/api';
 import { useAuthStore } from '../src/stores/auth';
 
-export default function DoctorComingSoon(): React.JSX.Element {
+export default function DoctorPortal(): React.JSX.Element {
   const t = useT();
   const router = useRouter();
   const signOut = useAuthStore((state) => state.signOut);
 
   return (
     <Screen>
-      <Title>{t('doctor.comingSoon.title')}</Title>
-      <Body>{t('doctor.comingSoon.body')}</Body>
+      <Title>{t('doctor.portal.title')}</Title>
+      <Body>{t('doctor.portal.body')}</Body>
       <Button
         label={t('auth.logout')}
         onPress={() => {
