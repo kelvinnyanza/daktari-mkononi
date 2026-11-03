@@ -37,6 +37,9 @@ export function findProductionAdapterOffenders(env: Env): string[] {
 
   // Document storage — unset means PHI documents land on the pod's local disk
   // and vanish with it, instead of S3.
+  // S3_BUCKET selects S3Storage. Keys stay required until Phase 14 moves the
+  // API onto a task role (then drop these two lines, not the bucket).
+  if (missing(env.S3_BUCKET)) offenders.push('S3_BUCKET');
   if (missing(env.AWS_ACCESS_KEY_ID)) offenders.push('AWS_ACCESS_KEY_ID');
   if (missing(env.AWS_SECRET_ACCESS_KEY)) offenders.push('AWS_SECRET_ACCESS_KEY');
 

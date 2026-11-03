@@ -58,13 +58,16 @@ function createSmsPort(env: Env): SmsPort {
 }
 
 function createStorage(env: Env): { storage: StoragePort; localFiles: LocalFileReader } {
-  if (env.AWS_ACCESS_KEY_ID !== undefined && env.AWS_SECRET_ACCESS_KEY !== undefined) {
+  // The bucket name decides S3 vs local — never a hard-coded name. Static
+  // keys are optional: without them the SDK uses the instance/task role.
+  if (env.S3_BUCKET !== undefined) {
     return {
       storage: new S3Storage({
-        bucket: 'daktari-documents',
+        bucket: env.S3_BUCKET,
         region: env.AWS_REGION,
-        accessKeyId: env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+        ...(env.AWS_ACCESS_KEY_ID !== undefined ? { accessKeyId: env.AWS_ACCESS_KEY_ID } : {}),
+        ...(env.AWS_SECRET_ACCESS_KEY !== undefined ? { secretAccessKey: env.AWS_SECRET_ACCESS_KEY } : {}),
+        ...(env.S3_KMS_KEY_ID !== undefined ? { kmsKeyId: env.S3_KMS_KEY_ID } : {}),
       }),
       localFiles: null, // presigned URLs go straight to S3
     };

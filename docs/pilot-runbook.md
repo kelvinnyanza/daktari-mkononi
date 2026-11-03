@@ -277,3 +277,33 @@ portal's **Doctors** list. A patient can rate a consultation exactly once.
 | Presence never shows the patient | The API is running as more than one instance; in-memory pub/sub does not cross processes. |
 | "Complete" disabled with notes written | Assessment or plan is under 3 characters. |
 | Portal signs you out on reload | Expected only if the refresh cookie is gone; the access token is memory-only by design and is re-fetched silently. |
+
+---
+
+## Appendix — document storage on S3 (before production)
+
+The API stores documents in S3 when `S3_BUCKET` is set (local disk
+otherwise). Uploads go **straight from the browser to S3** through a
+presigned POST (valid 10 minutes) whose policy pins the exact key, content
+type, a 10 MB size cap and server-side encryption; the API then re-checks
+the file's first bytes before accepting it. Downloads are presigned GETs
+valid for 15 minutes at most.
+
+One-time AWS setup (region **af-south-1**):
+
+1. Create a private bucket, e.g. `daktari-documents-prod` — **Block all
+   public access: on**, versioning on, default encryption SSE-S3 (or
+   SSE-KMS; then set `S3_KMS_KEY_ID`).
+2. Bucket policy: deny any `s3:PutObject` without
+   `s3:x-amz-server-side-encryption`, and deny non-TLS access
+   (`aws:SecureTransport = false`).
+3. CORS on the bucket — allow `POST` from the portal origin (`APP_URL`)
+   only, so the browser may upload:
+   `[{"AllowedOrigins":["https://app.<domain>"],"AllowedMethods":["POST"],"AllowedHeaders":["*"],"MaxAgeSeconds":3000}]`
+4. An IAM user (until Phase 14 moves the API to a task role) limited to
+   `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` on
+   `arn:aws:s3:::daktari-documents-prod/*` (plus `kms:GenerateDataKey` /
+   `kms:Decrypt` on the key if SSE-KMS).
+5. `.env`: `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+   `AWS_REGION=af-south-1`. The production guard refuses to start without
+   `S3_BUCKET`.

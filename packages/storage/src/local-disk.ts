@@ -1,14 +1,22 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { StorageNotConfiguredError, type StoragePort } from './port.js';
-import { createSignedFileToken } from './signed-token.js';
+import {
+  MAX_DOWNLOAD_URL_TTL_SECONDS,
+  MAX_UPLOAD_URL_TTL_SECONDS,
+  StorageNotConfiguredError,
+  clampTtl,
+  type PresignedUpload,
+  type PresignedUploadInput,
+  type StoragePort,
+} from './port.js';
+import { createSignedFileToken, createSignedUploadToken } from './signed-token.js';
 
 export interface LocalDiskStorageOptions {
   /** Root directory, e.g. "<repo>/.storage" (gitignored). */
   rootDir: string;
   /** HMAC secret for signed download tokens (>= 32 chars). */
   signingSecret: string;
-  /** Route prefix the API serves files from. */
+  /** Route prefix the API serves files from (uploads go to `${urlPrefix}/upload/:token`). */
   urlPrefix?: string;
   now?: () => Date;
 }
@@ -73,8 +81,9 @@ export class LocalDiskStorage implements StoragePort {
     } catch {
       // Missing sidecar → served as a generic download.
     }
+    const ttl = clampTtl(ttlSeconds, MAX_DOWNLOAD_URL_TTL_SECONDS);
     const token = createSignedFileToken(
-      { key, contentType, exp: this.now().getTime() + ttlSeconds * 1000 },
+      { key, contentType, exp: this.now().getTime() + ttl * 1000 },
       this.signingSecret,
     );
     return `${this.urlPrefix}/${token}`;
@@ -84,6 +93,62 @@ export class LocalDiskStorage implements StoragePort {
     const filePath = this.resolve(key);
     await rm(filePath, { force: true });
     await rm(`${filePath}${META_SUFFIX}`, { force: true });
+  }
+
+  /**
+   * Same contract as S3's presigned POST, served by the API's
+   * POST /api/v1/files/upload/:token route, which enforces the token's
+   * content type and size cap exactly like S3's policy does.
+   */
+  async createPresignedUpload(input: PresignedUploadInput): Promise<PresignedUpload> {
+    this.resolve(input.key);
+    if (!Number.isSafeInteger(input.maxBytes) || input.maxBytes <= 0) {
+      throw new RangeError('maxBytes must be a positive integer');
+    }
+    const ttl = clampTtl(input.ttlSeconds, MAX_UPLOAD_URL_TTL_SECONDS);
+    const expiresAt = new Date(this.now().getTime() + ttl * 1000);
+    const token = createSignedUploadToken(
+      { key: input.key, contentType: input.contentType, maxBytes: input.maxBytes, exp: expiresAt.getTime() },
+      this.signingSecret,
+    );
+    return {
+      url: `${this.urlPrefix}/upload/${token}`,
+      method: 'POST',
+      fields: {},
+      contentType: input.contentType,
+      maxBytes: input.maxBytes,
+      expiresAt,
+    };
+  }
+
+  async stat(key: string): Promise<{ size: number; contentType: string | null } | null> {
+    const filePath = this.resolve(key);
+    try {
+      const handle = await open(filePath, 'r');
+      const { size } = await handle.stat();
+      await handle.close();
+      let contentType: string | null = null;
+      try {
+        const meta = JSON.parse(await readFile(`${filePath}${META_SUFFIX}`, 'utf8')) as { contentType?: string };
+        if (typeof meta.contentType === 'string') contentType = meta.contentType;
+      } catch {
+        // no sidecar
+      }
+      return { size, contentType };
+    } catch {
+      return null;
+    }
+  }
+
+  async readHead(key: string, length: number): Promise<Buffer> {
+    const handle = await open(this.resolve(key), 'r');
+    try {
+      const buffer = Buffer.alloc(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, 0);
+      return buffer.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
   }
 
   /** Used by the /api/v1/files route after verifying the token. */

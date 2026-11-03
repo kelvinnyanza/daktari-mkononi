@@ -29,6 +29,7 @@ const prodEnv: Record<string, string> = {
   ANTHROPIC_API_KEY: 'sk-ant-prod',
   AWS_ACCESS_KEY_ID: 'AKIAPROD',
   AWS_SECRET_ACCESS_KEY: 'aws-secret',
+  S3_BUCKET: 'daktari-documents-prod',
   SMS_API_KEY: 'sms-key',
   DAILY_CO_API_KEY: 'daily-key',
   AZAMPAY_APP_NAME: 'daktari',
@@ -58,6 +59,7 @@ describe('production adapter guard', () => {
       ANTHROPIC_API_KEY: undefined,
       AWS_ACCESS_KEY_ID: undefined,
       AWS_SECRET_ACCESS_KEY: undefined,
+      S3_BUCKET: undefined,
       AZAMPAY_APP_NAME: undefined,
       AZAMPAY_CLIENT_ID: undefined,
       AZAMPAY_CLIENT_SECRET: undefined,
@@ -74,6 +76,7 @@ describe('production adapter guard', () => {
       expect.arrayContaining([
         'REDIS_URL',
         'ANTHROPIC_API_KEY',
+        'S3_BUCKET',
         'AWS_ACCESS_KEY_ID',
         'AWS_SECRET_ACCESS_KEY',
         'AZAMPAY_CLIENT_ID',
@@ -88,7 +91,7 @@ describe('production adapter guard', () => {
         'DAILY_CO_API_KEY',
       ]),
     );
-    expect(offenders.length).toBe(14);
+    expect(offenders.length).toBe(15);
 
     const error = (() => {
       try {
@@ -121,6 +124,7 @@ describe('production adapter guard', () => {
       ANTHROPIC_API_KEY: undefined,
       AWS_ACCESS_KEY_ID: undefined,
       AWS_SECRET_ACCESS_KEY: undefined,
+      S3_BUCKET: undefined,
       AZAMPAY_APP_NAME: undefined,
       AZAMPAY_CLIENT_ID: undefined,
       AZAMPAY_CLIENT_SECRET: undefined,

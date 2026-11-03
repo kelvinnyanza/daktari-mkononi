@@ -153,6 +153,14 @@ export const envSchema = z.object({
   AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
   AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   AWS_REGION: z.string().min(1).default('af-south-1'),
+  // Document bucket (doctor credentials, later medical files). Set ⇒ S3Storage;
+  // unset ⇒ LocalDiskStorage. Required in production. Server-side encryption
+  // is always on: SSE-KMS with S3_KMS_KEY_ID when set, otherwise SSE-S3.
+  S3_BUCKET: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, 'must be a valid S3 bucket name')
+    .optional(),
+  S3_KMS_KEY_ID: z.string().min(1).optional(),
 
   // ── Messaging ─────────────────────────────────────────────────────────────
   // Unset ⇒ ConsoleSms (OTP codes print to the API console — how you sign in

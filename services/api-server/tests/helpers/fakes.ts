@@ -31,7 +31,7 @@ import type {
 } from '@daktari/db';
 import { AlreadyRatedError, SlotTakenError, SLOT_HOLDING_STATUSES } from '@daktari/db';
 import type { SmsPort } from '@daktari/notifications';
-import type { StoragePort } from '@daktari/storage';
+import type { PresignedUpload, PresignedUploadInput, StoragePort } from '@daktari/storage';
 import { FakeVideo } from '@daktari/video';
 import { FakeAi } from '@daktari/ai';
 import { FakePayments } from '@daktari/payments';
@@ -164,6 +164,29 @@ export class FakeStorage implements StoragePort {
     const blob = this.blobs.get(key);
     if (!blob) return Promise.reject(new Error(`fake storage: no blob ${key}`));
     return Promise.resolve(blob.data);
+  }
+
+  readonly presignedUploads: PresignedUploadInput[] = [];
+
+  createPresignedUpload(input: PresignedUploadInput): Promise<PresignedUpload> {
+    this.presignedUploads.push(input);
+    return Promise.resolve({
+      url: `/api/v1/files/upload/fake-upload-for-${encodeURIComponent(input.key)}`,
+      method: 'POST',
+      fields: {},
+      contentType: input.contentType,
+      maxBytes: input.maxBytes,
+      expiresAt: new Date(Date.now() + input.ttlSeconds * 1000),
+    });
+  }
+
+  stat(key: string): Promise<{ size: number; contentType: string | null } | null> {
+    const blob = this.blobs.get(key);
+    return Promise.resolve(blob ? { size: blob.data.length, contentType: blob.contentType } : null);
+  }
+
+  readHead(key: string, length: number): Promise<Buffer> {
+    return this.read(key).then((data) => data.subarray(0, length));
   }
 }
 

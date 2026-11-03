@@ -3,8 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { LocalDiskStorage } from '../src/local-disk.js';
-import { verifySignedFileToken } from '../src/signed-token.js';
-import { S3Storage } from '../src/s3.js';
+import { verifySignedFileToken, verifySignedUploadToken } from '../src/signed-token.js';
 import { StorageNotConfiguredError } from '../src/port.js';
 
 const SECRET = 'file-signing-secret-file-signing-secret';
@@ -80,18 +79,40 @@ describe('LocalDiskStorage', () => {
   });
 });
 
-describe('S3Storage stub', () => {
-  it('throws STORAGE_NOT_CONFIGURED without AWS credentials', async () => {
-    const s3 = new S3Storage({
-      bucket: 'daktari',
-      region: 'af-south-1',
-      accessKeyId: undefined,
-      secretAccessKey: undefined,
+describe('LocalDiskStorage presigned upload (same contract as S3)', () => {
+  const secret = 's'.repeat(32);
+  it('issues a domain-separated upload token carrying key, type, size cap and a clamped expiry', async () => {
+    const now = new Date('2026-11-03T10:00:00Z');
+    const storage = new LocalDiskStorage({ rootDir, signingSecret: secret, now: () => now });
+    const upload = await storage.createPresignedUpload({
+      key: 'doctor-docs/d1/tmc_cert.pdf',
+      contentType: 'application/pdf',
+      maxBytes: 1024,
+      ttlSeconds: 3600, // asked for an hour …
     });
-    await expect(s3.put('k', Buffer.from('x'), 'text/plain')).rejects.toMatchObject({
-      code: 'STORAGE_NOT_CONFIGURED',
+    expect(upload.method).toBe('POST');
+    expect(upload.fields).toEqual({});
+    expect(upload.expiresAt.getTime() - now.getTime()).toBe(600_000); // … capped at 10 min
+    const token = upload.url.replace('/api/v1/files/upload/', '');
+    expect(verifySignedUploadToken(token, secret, now)).toMatchObject({
+      key: 'doctor-docs/d1/tmc_cert.pdf',
+      contentType: 'application/pdf',
+      maxBytes: 1024,
     });
-    await expect(s3.getSignedUrl('k', 60)).rejects.toMatchObject({ code: 'STORAGE_NOT_CONFIGURED' });
-    await expect(s3.delete('k')).rejects.toMatchObject({ code: 'STORAGE_NOT_CONFIGURED' });
+    // Never usable as a download token, and a download token never as an upload token.
+    expect(verifySignedFileToken(token, secret, now)).toBeNull();
+    const download = (await storage.getSignedUrl('doctor-docs/d1/tmc_cert.pdf', 60)).replace('/api/v1/files/', '');
+    expect(verifySignedUploadToken(download, secret, now)).toBeNull();
+    await expect(
+      storage.createPresignedUpload({ key: '../etc/passwd', contentType: 'x', maxBytes: 1, ttlSeconds: 60 }),
+    ).rejects.toThrow(/unsafe/);
+  });
+
+  it('stat + readHead report size, type and the first bytes', async () => {
+    const storage = new LocalDiskStorage({ rootDir, signingSecret: secret });
+    await storage.put('t/head.pdf', Buffer.from('%PDF-1.7 rest'), 'application/pdf');
+    expect(await storage.stat('t/head.pdf')).toEqual({ size: 13, contentType: 'application/pdf' });
+    expect((await storage.readHead('t/head.pdf', 5)).toString()).toBe('%PDF-');
+    expect(await storage.stat('t/missing.pdf')).toBeNull();
   });
 });

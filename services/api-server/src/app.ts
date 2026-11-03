@@ -91,6 +91,9 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
   const now = options.now ?? (() => new Date());
 
   const app = fastify({
+    // Signed file tokens (download + local upload) ride in the path and run
+    // ~170-300 chars; Fastify's default 100 answered them 414.
+    maxParamLength: 1024,
     logger: options.loggerStream
       ? { ...buildLoggerOptions('info'), stream: options.loggerStream }
       : options.logger === false
@@ -281,7 +284,7 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
   await app.register(buildAppointmentRoutes(appointmentService, options.deps.sessions, now), {
     prefix: '/api/v1/appointments',
   });
-  await app.register(buildFilesRoutes(options.deps.localFiles, now), {
+  await app.register(buildFilesRoutes(options.deps.localFiles, now, options.deps.storage), {
     prefix: '/api/v1/files',
   });
   await app.register(buildConsultationRoutes(consultationService, ratingService, options.deps.sessions, now), {
