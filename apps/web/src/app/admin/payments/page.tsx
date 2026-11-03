@@ -30,6 +30,8 @@ interface PaymentRow {
   failureReason: string | null;
   refundPending: boolean;
   refundState: string | null;
+  refundKind: string | null;
+  excessRefundedTzs: number;
   receivedAmountTzs: number | null;
   reviewReason: string | null;
   reviewNote: string | null;
@@ -389,8 +391,17 @@ function ReviewQueueCard() {
                       value={formatTzs(payment.receivedAmountTzs)}
                     />
                   )}
+                {payment.excessRefundedTzs > 0 && (
+                  <Row
+                    label={t('payments.review.excessRefunded')}
+                    value={formatTzs(payment.excessRefundedTzs)}
+                  />
+                )}
                 {payment.refundState !== null && (
-                  <Row label={t('payments.refundState')} value={payment.refundState} />
+                  <Row
+                    label={t('payments.refundState')}
+                    value={`${payment.refundState}${payment.refundKind === 'EXCESS' ? ` (${t('payments.review.excessRefunded')})` : ''}`}
+                  />
                 )}
                 {payment.reviewFlaggedAt !== null && (
                   <span className="text-xs text-muted-foreground">

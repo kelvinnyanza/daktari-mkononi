@@ -16,7 +16,7 @@ let payments: PaymentService;
 let fees: FeeSettingsService;
 let appointments: AppointmentService;
 
-function makeServices() {
+function makeServices(paymentGraceMs?: number) {
   fees = new FeeSettingsService(
     { feeSettings: deps.feeSettings, doctors: deps.doctors, auditLogs: deps.auditLogs },
     () => clock.now,
@@ -32,6 +32,7 @@ function makeServices() {
       sms: deps.sms,
       auditLogs: deps.auditLogs,
       fees,
+      ...(paymentGraceMs !== undefined ? { paymentGraceMs } : {}),
     },
     () => clock.now,
   );
@@ -451,11 +452,26 @@ describe('webhook route (AzamPay RSA signature + status confirmation over HTTP)'
     await app.close();
   });
 
-  it('callback amount ≠ owed → AMOUNT_MISMATCH, not confirmed', async () => {
+  it('callback amount < owed → UNDERPAID, not confirmed, booking released, refunded; unreadable → AMOUNT_MISMATCH', async () => {
     const { app, booked, payment, reference } = await appWithPaidSetup();
     const body = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success', { amount: '2500' }));
     await post(app, body);
-    expect(deps.state.paymentRows.get(payment.id)!.reviewReason).toBe('AMOUNT_MISMATCH');
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.reviewReason).toBe('UNDERPAID');
+    expect(row.status).toBe('REFUNDED');
+    expect(row.refundAmountTzs).toBe(2_500);
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CANCELLED');
+    await app.close();
+  });
+
+  it('an unreadable callback amount → AMOUNT_MISMATCH: not confirmed, nothing automatic', async () => {
+    const { app, booked, payment, reference } = await appWithPaidSetup();
+    const body = JSON.stringify(deps.mobileMoney.webhookBodyFor(reference, 'success', { amount: '25,000.50' }));
+    await post(app, body);
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.reviewReason).toBe('AMOUNT_MISMATCH');
+    expect(row.status).toBe('COMPLETED');
+    expect(deps.mobileMoney.refunds).toHaveLength(0);
     expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
     await app.close();
   });
@@ -516,13 +532,64 @@ describe('late / orphan payments (Phase 13a)', () => {
     status: 'success' as const,
   });
 
-  it('success after the expiry sweep cancelled the booking → no confirmation, flagged, refunded, patient told', async () => {
+  it('success within the grace period after the sweep, slot still free → booking reinstated CONFIRMED, patient told', async () => {
     const { user, booked, payment } = await bookedMobileMoney(15_000);
     clock.now = new Date(NOW.getTime() + 31 * 60_000);
     expect(await appointments.expireStalePayments()).toBe(1);
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CANCELLED');
     expect(deps.state.paymentRows.get(payment.id)!.abandonedAt).not.toBeNull();
     expect(deps.state.paymentRows.get(payment.id)!.status).toBe('PROCESSING'); // never closed blind
 
+    clock.now = new Date(NOW.getTime() + 34 * 60_000); // 4 min after the window, inside 5-min grace
+    expect((await signedCallback(successFor(payment))).outcome).toBe('applied');
+
+    const appointment = deps.state.appointments.get(booked.id)!;
+    expect(appointment.status).toBe('CONFIRMED');
+    expect(appointment.cancellationReason).toBeNull();
+    expect(appointment.expiresAt).toBeNull();
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.status).toBe('COMPLETED');
+    expect(row.reviewReason).toBeNull();
+    expect(deps.mobileMoney.refunds).toHaveLength(0);
+    const transition = deps.state.auditEntries.find(
+      (entry) => entry.action === 'APPOINTMENT_TRANSITION' && (entry.metadata as { event?: string })?.event === 'LATE_PAYMENT_ACCEPTED',
+    );
+    expect(transition).toBeDefined();
+    expect(deps.state.auditEntries.some((entry) => entry.action === 'PAYMENT_LATE_ACCEPTED')).toBe(true);
+    const texts = deps.sms.sent.filter((entry) => entry.to === user.phone).map((entry) => entry.body);
+    expect(texts.some((body) => body.includes('miadi yako imethibitishwa'))).toBe(true);
+  });
+
+  it('success within grace but someone else took the slot → not confirmed, LATE_SUCCESS SLOT_TAKEN, refunded', async () => {
+    const { doctor, booked, payment } = await bookedMobileMoney(15_000);
+    clock.now = new Date(NOW.getTime() + 31 * 60_000);
+    await appointments.expireStalePayments();
+    // Another patient books the freed slot.
+    const { user: other } = deps.seedPatient({ phone: '+255652345678' });
+    await appointments.book(other.id, {
+      doctorId: doctor.id,
+      type: 'VIDEO',
+      scheduledAt: new Date(SLOT),
+      reason: 'Kikohozi',
+      paymentIntent: 'MOBILE_MONEY',
+    });
+
+    clock.now = new Date(NOW.getTime() + 33 * 60_000);
+    await signedCallback(successFor(payment));
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CANCELLED');
+    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.reviewReason).toBe('LATE_SUCCESS');
+    expect(row.reviewNote).toBe('SLOT_TAKEN');
+    expect(row.status).toBe('REFUNDED');
+    expect(row.refundAmountTzs).toBe(15_000);
+  });
+
+  it('success after the grace period → no confirmation, flagged, refunded, patient told', async () => {
+    const { user, booked, payment } = await bookedMobileMoney(15_000);
+    clock.now = new Date(NOW.getTime() + 31 * 60_000);
+    expect(await appointments.expireStalePayments()).toBe(1);
+
+    clock.now = new Date(NOW.getTime() + 36 * 60_000); // 6 min after the window: grace over
     const result = await signedCallback(successFor(payment));
     expect(result.outcome).toBe('applied');
 
@@ -544,12 +611,38 @@ describe('late / orphan payments (Phase 13a)', () => {
     expect((await payments.reviewQueue()).items.map((item) => item.id)).toEqual([payment.id]);
   });
 
-  it('success after expiresAt but BEFORE the sweep ran still never confirms', async () => {
-    const { booked, payment } = await bookedMobileMoney();
-    clock.now = new Date(NOW.getTime() + 31 * 60_000); // window over, sweep not yet run
+  it('a patient cancellation is never reinstated by a late payment (only PAYMENT_TIMEOUT is)', async () => {
+    const { user, booked, payment } = await bookedMobileMoney();
+    await appointments.cancelByPatient(user.id, booked.id, 'nimebadili mawazo');
     await signedCallback(successFor(payment));
-    expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
-    const row = deps.state.paymentRows.get(payment.id)!;
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CANCELLED');
+    expect(deps.state.paymentRows.get(payment.id)!.status).toBe('REFUNDED');
+  });
+
+  it('grace 0 (PAYMENT_GRACE_MINUTES=0) → every late success is refunded', async () => {
+    makeServices(0);
+    const { booked, payment } = await bookedMobileMoney();
+    clock.now = new Date(NOW.getTime() + 31 * 60_000);
+    await appointments.expireStalePayments();
+    await signedCallback(successFor(payment));
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CANCELLED');
+    expect(deps.state.paymentRows.get(payment.id)!.status).toBe('REFUNDED');
+  });
+
+  it('after expiresAt but BEFORE the sweep ran: within grace confirms, past grace never does', async () => {
+    const first = await bookedMobileMoney();
+    clock.now = new Date(NOW.getTime() + 31 * 60_000); // window over, sweep not yet run
+    await signedCallback(successFor(first.payment));
+    expect(deps.state.appointments.get(first.booked.id)!.status).toBe('CONFIRMED');
+
+    deps = makeFakeDeps();
+    clock = { now: new Date(NOW) };
+    makeServices();
+    const second = await bookedMobileMoney();
+    clock.now = new Date(NOW.getTime() + 36 * 60_000); // past grace, sweep still not run
+    await signedCallback(successFor(second.payment));
+    expect(deps.state.appointments.get(second.booked.id)!.status).toBe('PENDING_PAYMENT');
+    const row = deps.state.paymentRows.get(second.payment.id)!;
     expect(row.reviewNote).toBe('APPOINTMENT_EXPIRED');
     expect(row.status).toBe('REFUNDED');
   });
@@ -612,7 +705,7 @@ describe('late / orphan payments (Phase 13a)', () => {
 
   it('admin resolves a review item with a note (audited); resolving twice is refused', async () => {
     const { payment } = await bookedMobileMoney();
-    clock.now = new Date(NOW.getTime() + 31 * 60_000);
+    clock.now = new Date(NOW.getTime() + 36 * 60_000); // past grace → LATE_SUCCESS review item
     await signedCallback(successFor(payment));
     const admin = deps.seedUser({ role: 'PLATFORM_ADMIN' });
     const view = await payments.resolveReview(admin.id, payment.id, 'Refund confirmed with patient');
@@ -623,8 +716,8 @@ describe('late / orphan payments (Phase 13a)', () => {
 });
 
 describe('amount check + unknown outcomes (Phase 13a)', () => {
-  it('provider-reported amount ≠ owed → COMPLETED but NOT confirmed, flagged AMOUNT_MISMATCH, no auto-refund', async () => {
-    const { booked, payment } = await bookedMobileMoney(15_000);
+  it('UNDERPAID → not confirmed, booking cancelled (slot freed), everything received refunded, admin sees it', async () => {
+    const { user, booked, payment } = await bookedMobileMoney(15_000);
     await signedCallback({
       transactionId: deps.mobileMoney.collections[0]!.providerReference,
       externalReference: payment.idempotencyKey,
@@ -632,12 +725,80 @@ describe('amount check + unknown outcomes (Phase 13a)', () => {
       amount: 1_500,
     });
     const row = deps.state.paymentRows.get(payment.id)!;
-    expect(row.status).toBe('COMPLETED');
     expect(row.receivedAmountTzs).toBe(1_500);
-    expect(row.reviewReason).toBe('AMOUNT_MISMATCH');
-    expect(row.reviewNote).toContain('owed TZS 15000');
-    expect(deps.state.appointments.get(booked.id)!.status).toBe('PENDING_PAYMENT');
-    expect(deps.mobileMoney.refunds).toHaveLength(0);
+    expect(row.reviewReason).toBe('UNDERPAID');
+    expect(row.reviewNote).toContain('owed TZS 15000, received TZS 1500');
+    expect(row.status).toBe('REFUNDED');
+    expect(row.refundKind).toBe('FULL');
+    expect(row.refundAmountTzs).toBe(1_500);
+    expect(deps.mobileMoney.refunds.map((refund) => refund.amountTzs)).toEqual([1_500]);
+    const appointment = deps.state.appointments.get(booked.id)!;
+    expect(appointment.status).toBe('CANCELLED');
+    expect(appointment.cancellationReason).toBe('PAYMENT_UNDERPAID');
+    const texts = deps.sms.sent.filter((entry) => entry.to === user.phone).map((entry) => entry.body);
+    expect(texts.some((body) => body.includes('tumepokea TZS 1500 lakini ada ni TZS 15000'))).toBe(true);
+    expect((await payments.reviewQueue()).items.map((item) => item.reviewReason)).toEqual(['UNDERPAID']);
+  });
+
+  it('OVERPAID → confirmed, only the difference refunded, payment stays COMPLETED, earning untouched', async () => {
+    const { doctor, user, booked, payment } = await bookedMobileMoney(15_000);
+    await signedCallback({
+      transactionId: deps.mobileMoney.collections[0]!.providerReference,
+      externalReference: payment.idempotencyKey,
+      status: 'success',
+      amount: 20_000,
+    });
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CONFIRMED');
+    let row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.status).toBe('COMPLETED');
+    expect(row.reviewReason).toBe('OVERPAID');
+    expect(row.reviewNote).toContain('TZS 5000 refunded');
+    expect(row.excessRefundedTzs).toBe(5_000);
+    expect(row.refundState).toBeNull(); // the refund slot is free again
+    expect(row.refundKind).toBeNull();
+    expect(deps.mobileMoney.refunds.map((refund) => refund.amountTzs)).toEqual([5_000]);
+    expect(deps.mobileMoney.refunds[0]!.reference).toBe(`r1-${payment.id}`);
+    const texts = deps.sms.sent.filter((entry) => entry.to === user.phone).map((entry) => entry.body);
+    expect(texts.some((body) => body.includes('TZS 5000 zimerudishwa'))).toBe(true);
+    expect((await payments.reviewQueue()).items.map((item) => item.reviewReason)).toEqual(['OVERPAID']);
+
+    // The doctor's share is computed on the fee, not on what was received.
+    await payments.accrueForConsultation({ appointmentId: booked.id, doctorId: doctor.id, consultationId: 'c-over' });
+    const earning = [...deps.state.doctorPaymentRows.values()][0]!;
+    expect(earning.amountTzs).toBe(calculateFees(15_000, DEFAULT_FEE_RATES).doctorAmountTzs);
+
+    // A later cancellation refunds the rest (the fee), with its own reference.
+    await payments.refundIfPaid(booked.id, 'patient-cancel: x');
+    row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.status).toBe('REFUNDED');
+    expect(row.refundAmountTzs).toBe(15_000);
+    expect(deps.mobileMoney.refunds.map((refund) => refund.amountTzs)).toEqual([5_000, 15_000]);
+    expect(deps.mobileMoney.refunds[1]!.reference).toBe(`r2-${payment.id}`);
+  });
+
+  it('OVERPAID with the excess refund FAILING → booking still confirmed; admin retry pays only the excess', async () => {
+    deps.mobileMoney.nextRefund('failed');
+    const { booked, payment } = await bookedMobileMoney(15_000);
+    await signedCallback({
+      transactionId: deps.mobileMoney.collections[0]!.providerReference,
+      externalReference: payment.idempotencyKey,
+      status: 'success',
+      amount: 16_000,
+    });
+    expect(deps.state.appointments.get(booked.id)!.status).toBe('CONFIRMED');
+    let row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.refundState).toBe('FAILED');
+    expect(row.refundKind).toBe('EXCESS');
+    const admin = deps.seedUser({ role: 'PLATFORM_ADMIN' });
+    await payments.retryRefund(admin.id, payment.id);
+    row = deps.state.paymentRows.get(payment.id)!;
+    expect(row.status).toBe('COMPLETED');
+    expect(row.excessRefundedTzs).toBe(1_000);
+    // Failed attempt r1 and the retry r2 — both for the excess only, never the fee.
+    expect(deps.mobileMoney.refunds.map((refund) => [refund.reference, refund.amountTzs])).toEqual([
+      [`r1-${payment.id}`, 1_000],
+      [`r2-${payment.id}`, 1_000],
+    ]);
   });
 
   it('matching amount confirms as before', async () => {

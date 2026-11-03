@@ -77,8 +77,16 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
   resets connections). Disbursement callbacks are never
   trusted. A timeout / 5xx on a money-moving call is `OUTCOME_UNKNOWN`: never
   mark it failed, never resend it blind. A success for a non-payable
-  appointment is a LATE_SUCCESS (no confirm, auto-refund, admin review);
-  amount ≠ owed is AMOUNT_MISMATCH (no confirm, no auto-refund).
+  appointment is a LATE_SUCCESS (no confirm, auto-refund, admin review) —
+  except within `PAYMENT_GRACE_MINUTES` (default 5) after a PAYMENT_TIMEOUT,
+  when the booking is reinstated if the slot is still free (the unique index
+  arbitrates; the only exit from CANCELLED). UNDERPAID → no confirm, booking
+  cancelled, full refund; OVERPAID → confirmed, the difference refunded as an
+  EXCESS refund (payment stays COMPLETED, earning untouched; a later FULL
+  refund returns received − excessRefundedTzs); unreadable amount →
+  AMOUNT_MISMATCH (no confirm, no auto-refund). The dev mark-as-paid route
+  exists only when NODE_ENV and AZAMPAY_ENV are both non-production, and the
+  server refuses AZAMPAY_ENV=production without NODE_ENV=production.
 - **Refunds and payouts are AzamPay disbursements** (AzamPay has no refund
   API); the documented disbursement API pays only tigo / airtel / azampesa —
   M-Pesa, Halopesa and bank destinations are paid manually with a recorded

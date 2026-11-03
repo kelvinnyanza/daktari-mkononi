@@ -19,6 +19,8 @@ export type AppointmentEvent =
   | 'INSURANCE_CONFIRMED'
   | 'CASH_CONFIRMED'
   | 'PAYMENT_TIMEOUT'
+  | 'LATE_PAYMENT_ACCEPTED'
+  | 'PAYMENT_UNDERPAID'
   | 'PATIENT_CANCEL'
   | 'DOCTOR_CANCEL'
   | 'CHECK_IN'
@@ -70,6 +72,29 @@ export const APPOINTMENT_TRANSITIONS: readonly AppointmentTransition[] = [
     permission: null, // expiry sweep job
     guards: ['expiresAt-passed'],
     sideEffects: ['audit', 'set-cancellation-reason-PAYMENT_TIMEOUT'],
+  },
+  {
+    // The ONE exit from CANCELLED: a payment that completes within the grace
+    // period after a PAYMENT_TIMEOUT reinstates the booking — but only if the
+    // slot is still free. The partial unique index is the arbiter (the
+    // reinstating UPDATE fails with SlotTakenError when someone else holds
+    // the slot ⇒ late success, refunded).
+    event: 'LATE_PAYMENT_ACCEPTED',
+    from: 'CANCELLED',
+    to: 'CONFIRMED',
+    permission: null, // payment webhook / reconciliation only
+    guards: ['cancelled-by-PAYMENT_TIMEOUT', 'within-payment-grace', 'slot-still-free'],
+    sideEffects: ['audit', 'set-confirmedAt', 'clear-cancellation', 'mint-check-in-token-if-in-person', 'sms-patient'],
+  },
+  {
+    // Less money arrived than the fee: never confirmed; the slot is released
+    // at once and what was received is refunded in full.
+    event: 'PAYMENT_UNDERPAID',
+    from: 'PENDING_PAYMENT',
+    to: 'CANCELLED',
+    permission: null, // payment webhook / reconciliation only
+    guards: ['received-less-than-owed'],
+    sideEffects: ['audit', 'set-cancellation-reason-PAYMENT_UNDERPAID', 'full-refund'],
   },
   {
     event: 'PATIENT_CANCEL',

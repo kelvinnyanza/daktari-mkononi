@@ -205,6 +205,9 @@ async function main(): Promise<void> {
       },
     },
     redis,
+    settings: {
+      paymentGraceMs: env.PAYMENT_GRACE_MINUTES * 60_000,
+    },
   });
 
   logAzamPay = (event) => {

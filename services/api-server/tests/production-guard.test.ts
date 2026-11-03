@@ -116,7 +116,7 @@ describe('production adapter guard', () => {
 
   it('is a no-op outside production — dev keeps its fake/console fallbacks', () => {
     const devEnv = {
-      ...loadEnv({ ...prodEnv, NODE_ENV: 'development' }),
+      ...loadEnv({ ...prodEnv, NODE_ENV: 'development', AZAMPAY_ENV: 'sandbox' }),
       REDIS_URL: undefined,
       ANTHROPIC_API_KEY: undefined,
       AWS_ACCESS_KEY_ID: undefined,
@@ -172,7 +172,7 @@ describe('production adapter guard', () => {
   });
 
   it('allows the dev fake AI outside production', () => {
-    const env = loadEnv({ ...prodEnv, NODE_ENV: 'development', AI_PROVIDER: 'fake' });
+    const env = loadEnv({ ...prodEnv, NODE_ENV: 'development', AZAMPAY_ENV: 'sandbox', AI_PROVIDER: 'fake' });
     expect(() => assertProductionReady(env)).not.toThrow();
   });
 

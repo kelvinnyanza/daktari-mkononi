@@ -53,6 +53,8 @@ describe('appointment transition table', () => {
       ['INSURANCE_CONFIRMED', 'PENDING_PAYMENT', 'CONFIRMED'],
       ['CASH_CONFIRMED', 'PENDING_PAYMENT', 'CONFIRMED'],
       ['PAYMENT_TIMEOUT', 'PENDING_PAYMENT', 'CANCELLED'],
+      ['LATE_PAYMENT_ACCEPTED', 'CANCELLED', 'CONFIRMED'],
+      ['PAYMENT_UNDERPAID', 'PENDING_PAYMENT', 'CANCELLED'],
       ['PATIENT_CANCEL', 'PENDING_PAYMENT', 'CANCELLED'],
       ['PATIENT_CANCEL', 'CONFIRMED', 'CANCELLED'],
       ['DOCTOR_CANCEL', 'PENDING_PAYMENT', 'CANCELLED'],
@@ -87,10 +89,17 @@ describe('appointment transition table', () => {
   });
 
   it('terminal states have no outgoing transitions', () => {
-    for (const terminal of ['CANCELLED', 'NO_SHOW', 'COMPLETED'] as const) {
+    for (const terminal of ['NO_SHOW', 'COMPLETED'] as const) {
       expect(
         APPOINTMENT_TRANSITIONS.filter((transition) => transition.from === terminal),
       ).toHaveLength(0);
     }
+  });
+
+  it('CANCELLED has exactly one exit: the system-only, guarded late-payment reinstatement', () => {
+    const exits = APPOINTMENT_TRANSITIONS.filter((transition) => transition.from === 'CANCELLED');
+    expect(exits).toHaveLength(1);
+    expect(exits[0]).toMatchObject({ event: 'LATE_PAYMENT_ACCEPTED', to: 'CONFIRMED', permission: null });
+    expect(exits[0]!.guards).toEqual(['cancelled-by-PAYMENT_TIMEOUT', 'within-payment-grace', 'slot-still-free']);
   });
 });

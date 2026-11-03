@@ -702,6 +702,17 @@ export function makeFakeDeps(): FakeDeps {
           ...(data as Partial<Appointment>),
           updatedAt: new Date(),
         };
+        // Mirror the partial unique index on a move INTO a slot-holding status.
+        if (!holdsSlot(appointment) && holdsSlot(next)) {
+          const taken = [...appointments.values()].some(
+            (existing) =>
+              existing.id !== id &&
+              existing.doctorId === next.doctorId &&
+              existing.scheduledAt.getTime() === next.scheduledAt.getTime() &&
+              holdsSlot(existing),
+          );
+          if (taken) return Promise.reject(new SlotTakenError());
+        }
         appointments.set(id, next);
         return Promise.resolve(next);
       },
@@ -1030,6 +1041,10 @@ export function makeFakeDeps(): FakeDeps {
           refundedAt: null,
           refundState: null,
           refundAttempts: 0,
+          refundKind: null,
+          excessRefundedTzs: 0,
+          excessRefundReference: null,
+          excessRefundedAt: null,
           receivedAmountTzs: null,
           reviewReason: null,
           reviewNote: null,

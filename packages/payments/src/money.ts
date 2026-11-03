@@ -12,9 +12,11 @@
  *   ON_TOP_OF_COMMISSION   (default): VAT V = roundHalfUp(C × vatBps / 10000)
  *                                     doctor D = F − C − V
  *                                     platform revenue (ex VAT) = C
- *   INCLUDED_IN_COMMISSION:            C already contains the VAT:
+ *   INCLUDED_IN_COMMISSION:            C already contains the VAT — the VAT
+ *                                     comes out of the PLATFORM's commission,
+ *                                     never out of the doctor's share:
  *                                     V = roundHalfUp(C × vatBps / (10000 + vatBps))
- *                                     doctor D = F − C
+ *                                     doctor D = F − C (same as with VAT off)
  *                                     platform revenue (ex VAT) = C − V
  *   vatEnabled = false:                V = 0 in both modes
  *

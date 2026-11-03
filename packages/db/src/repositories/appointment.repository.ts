@@ -130,15 +130,26 @@ export const appointmentRepository = {
    * Guarded status transition: applies only while the row is still in `from`.
    * Returns null when the guard misses so callers answer 409.
    */
+  /**
+   * Guarded status change (WHERE status = from). A move INTO a slot-holding
+   * status (reinstating a CANCELLED booking) is arbitrated by the partial
+   * unique index: a conflict surfaces as SlotTakenError, never as a raw P2002.
+   */
   async transition(
     id: string,
     from: AppointmentStatus,
     data: Prisma.AppointmentUpdateManyMutationInput & { status: AppointmentStatus },
   ): Promise<Appointment | null> {
-    const { count } = await prisma.appointment.updateMany({
-      where: { id, status: from },
-      data,
-    });
+    let count: number;
+    try {
+      ({ count } = await prisma.appointment.updateMany({
+        where: { id, status: from },
+        data,
+      }));
+    } catch (error) {
+      if (isSlotConflict(error)) throw new SlotTakenError();
+      throw error;
+    }
     if (count === 0) return null;
     return prisma.appointment.findUnique({ where: { id } });
   },

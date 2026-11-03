@@ -140,6 +140,10 @@ export const envSchema = z.object({
   AZAMPAY_DISBURSE_SOURCE_ACCOUNT: z.string().min(1).optional(),
   AZAMPAY_DISBURSE_SOURCE_NAME: z.string().min(1).optional(),
   AZAMPAY_DISBURSE_SOURCE_BANK: z.enum(['tigo', 'airtel', 'azampesa']).optional(),
+  // A payment completing up to this many minutes AFTER the 30-minute payment
+  // window still confirms the booking if the slot is still free; otherwise it
+  // is refunded. 0 = no grace.
+  PAYMENT_GRACE_MINUTES: z.coerce.number().int().min(0).max(30).default(5),
   // `pnpm azampay:sandbox-test` only: sandbox wallet numbers to charge / pay.
   AZAMPAY_SANDBOX_TEST_MSISDN: z.string().regex(/^\+255\d{9}$/).optional(),
   AZAMPAY_SANDBOX_TEST_DISBURSE_MSISDN: z.string().regex(/^\+255\d{9}$/).optional(),

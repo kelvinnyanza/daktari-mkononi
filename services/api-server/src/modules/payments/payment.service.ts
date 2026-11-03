@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { Appointment, Payment, PaymentMethod } from '@daktari/db';
+import { SlotTakenError, type Appointment, type Payment, type PaymentMethod } from '@daktari/db';
 import {
   MobileMoneyError,
   calculateFees,
@@ -49,6 +49,10 @@ export interface PaymentView {
   refundPending: boolean;
   refundState: Payment['refundState'];
   refundAmountTzs: number | null;
+  refundKind: Payment['refundKind'];
+  /** Overpayment difference already paid back; the payment stays COMPLETED. */
+  excessRefundedTzs: number;
+  excessRefundedAt: Date | null;
   receivedAmountTzs: number | null;
   reviewReason: Payment['reviewReason'];
   reviewNote: string | null;
@@ -83,6 +87,9 @@ const SETTLED_APPOINTMENT_STATUSES: ReadonlySet<string> = new Set([
 /** Abandoned payments still not final after this long go to the admin review queue. */
 const ABANDONED_ALERT_AFTER_MS = 24 * 60 * 60_000;
 
+/** Default grace after the 30-minute payment window (env PAYMENT_GRACE_MINUTES). */
+export const DEFAULT_PAYMENT_GRACE_MS = 5 * 60_000;
+
 export interface PaymentServiceDeps {
   payments: PaymentRepoPort;
   doctorPayments: DoctorPaymentRepoPort;
@@ -94,6 +101,11 @@ export interface PaymentServiceDeps {
   auditLogs: AuditLogPort;
   /** Effective commission / VAT rates for a doctor (FeeSettingsService). */
   fees: Pick<FeeSettingsService, 'ratesFor'>;
+  /**
+   * A payment completing this long after the payment window still confirms
+   * the booking IF the slot is still free (default 5 min; 0 = no grace).
+   */
+  paymentGraceMs?: number;
 }
 
 const METHOD_BY_NETWORK: Record<string, PaymentMethod> = {
@@ -312,8 +324,16 @@ export class PaymentService implements PaymentPort {
    *
    * A success is recorded as COMPLETED whatever happens next — the money DID
    * move — but it only confirms the appointment while that appointment is
-   * still payable. Otherwise (expired, cancelled, gone) it is a LATE SUCCESS:
-   * flagged for admins, the patient is told, and a full refund starts.
+   * still payable, or within the grace period after the window if the slot
+   * is still free. Otherwise (expired past grace, slot taken, cancelled,
+   * gone) it is a LATE SUCCESS: flagged for admins, the patient is told, and
+   * a full refund starts.
+   *
+   * Wrong amounts: UNDERPAID (received < owed) → not confirmed, the slot is
+   * released, everything received is refunded. OVERPAID (received > owed) →
+   * confirmed like an exact payment, and the difference is refunded. An
+   * unreadable amount → AMOUNT_MISMATCH, nothing automatic. All three land in
+   * the admin review queue.
    */
   async applyPaymentResult(
     payment: Payment,
@@ -341,19 +361,16 @@ export class PaymentService implements PaymentPort {
         source,
         amountReported: reported !== undefined,
       });
-      if (result.amountUnreadable === true || (reported !== undefined && reported !== payment.amountTzs)) {
-        // Under- or over-payment: never confirm on it, never auto-refund an
-        // amount nobody has checked — an admin decides (refund / top-up).
-        await this.flagForReview(
-          applied,
-          'AMOUNT_MISMATCH',
-          result.amountUnreadable === true
-            ? `owed TZS ${payment.amountTzs}, provider amount unreadable`
-            : `owed TZS ${payment.amountTzs}, provider reported TZS ${reported}`,
-        );
+      if (result.amountUnreadable === true) {
+        // Nobody knows how much arrived: never confirm, never auto-refund.
+        await this.flagForReview(applied, 'AMOUNT_MISMATCH', `owed TZS ${payment.amountTzs}, provider amount unreadable`);
         return { applied: true };
       }
-      await this.settle(applied);
+      if (reported !== undefined && reported < payment.amountTzs) {
+        await this.handleUnderpaid(applied, reported);
+        return { applied: true };
+      }
+      await this.settle(applied, reported !== undefined ? reported - payment.amountTzs : 0);
       return { applied: true };
     }
 
@@ -370,32 +387,174 @@ export class PaymentService implements PaymentPort {
     return { applied: true };
   }
 
-  /** Decide what a freshly COMPLETED payment buys: a confirmation, or a refund. */
-  private async settle(payment: Payment): Promise<void> {
+  /**
+   * Decide what a freshly COMPLETED payment buys: a confirmation, or a
+   * refund. `excessTzs` > 0 is an overpayment: confirmed like an exact one,
+   * then the difference goes back (an EXCESS refund — earning untouched).
+   */
+  private async settle(payment: Payment, excessTzs = 0): Promise<void> {
     if (payment.appointmentId === null) return;
     const appointment = await this.deps.appointments.findById(payment.appointmentId);
     if (appointment && SETTLED_APPOINTMENT_STATUSES.has(appointment.status)) return;
 
+    // Still PENDING_PAYMENT, even a little past expiresAt (the sweep runs once a
+    // minute): within the grace period it confirms like an on-time payment.
     const payable =
       appointment !== null &&
       appointment.status === 'PENDING_PAYMENT' &&
       appointment.paymentIntent === 'MOBILE_MONEY' &&
-      (appointment.expiresAt === null || appointment.expiresAt.getTime() > this.now().getTime());
-    if (payable && (await this.confirmAppointment(appointment))) return;
+      (appointment.expiresAt === null || this.now().getTime() <= this.graceEndsAt(appointment));
+    let confirmed = payable && (await this.confirmAppointment(appointment));
 
-    // Lost a race with the expiry sweep / a cancel, or never payable at all.
-    const current = payable ? await this.deps.appointments.findById(appointment.id) : appointment;
+    let current = payable ? await this.deps.appointments.findById(appointment.id) : appointment;
+    let why: string | null = null;
+    if (!confirmed && current && this.reinstatable(current)) {
+      const outcome = await this.reinstateAfterTimeout(current);
+      confirmed = outcome === 'confirmed';
+      if (outcome === 'slot-taken') why = 'SLOT_TAKEN';
+      current = await this.deps.appointments.findById(current.id);
+    }
+    if (confirmed) {
+      if (excessTzs > 0) await this.handleOverpaid(payment, excessTzs);
+      return;
+    }
+
+    // Lost a race with the expiry sweep / a cancel, past grace, slot taken, or never payable.
     if (current && SETTLED_APPOINTMENT_STATUSES.has(current.status)) return;
-    await this.handleLateSuccess(payment, current);
+    await this.handleLateSuccess(payment, current, why);
   }
 
-  private async handleLateSuccess(payment: Payment, appointment: Appointment | null): Promise<void> {
+  private get graceMs(): number {
+    return this.deps.paymentGraceMs ?? DEFAULT_PAYMENT_GRACE_MS;
+  }
+
+  private graceEndsAt(appointment: Appointment): number {
+    return (appointment.expiresAt?.getTime() ?? 0) + this.graceMs;
+  }
+
+  /** Cancelled ONLY by the payment timeout, and the grace period not over yet. */
+  private reinstatable(appointment: Appointment): boolean {
+    return (
+      this.graceMs > 0 &&
+      appointment.status === 'CANCELLED' &&
+      appointment.cancellationReason === 'PAYMENT_TIMEOUT' &&
+      appointment.paymentIntent === 'MOBILE_MONEY' &&
+      appointment.expiresAt !== null &&
+      this.now().getTime() <= this.graceEndsAt(appointment)
+    );
+  }
+
+  /**
+   * CANCELLED (PAYMENT_TIMEOUT) → CONFIRMED within the grace period. The slot
+   * was released at the timeout; the partial unique index decides whether it
+   * is still free (SlotTakenError ⇒ someone else booked it ⇒ refund).
+   */
+  private async reinstateAfterTimeout(appointment: Appointment): Promise<'confirmed' | 'slot-taken' | 'not-applied'> {
+    const transition = findAppointmentTransition('LATE_PAYMENT_ACCEPTED', appointment.status);
+    if (!transition) return 'not-applied';
+    let applied: Appointment | null;
+    try {
+      applied = await this.deps.appointments.transition(appointment.id, transition.from, {
+        status: transition.to,
+        confirmedAt: this.now(),
+        expiresAt: null,
+        pendingReason: null,
+        cancellationReason: null,
+        cancelledByUserId: null,
+        ...(appointment.type === 'IN_PERSON' && appointment.checkInToken === null
+          ? { checkInToken: PaymentService.mintCheckInToken() }
+          : {}),
+      });
+    } catch (error) {
+      if (error instanceof SlotTakenError) return 'slot-taken';
+      throw error;
+    }
+    if (!applied) return 'not-applied';
+    const lateBySeconds = Math.round((this.now().getTime() - (appointment.expiresAt?.getTime() ?? 0)) / 1000);
+    await this.deps.auditLogs.append({
+      actorUserId: null,
+      action: 'APPOINTMENT_TRANSITION',
+      resourceType: 'Appointment',
+      resourceId: appointment.id,
+      ipAddress: null,
+      userAgent: null,
+      metadata: { event: 'LATE_PAYMENT_ACCEPTED', from: transition.from, to: transition.to, lateBySeconds },
+    });
+    const payment = await this.deps.payments.findByAppointmentId(appointment.id);
+    if (payment) {
+      await this.audit(null, 'PAYMENT_LATE_ACCEPTED', payment.id, { lateBySeconds, graceMs: this.graceMs });
+      await this.smsPatient(
+        payment,
+        'Daktari Mkononi: malipo yako yamepokelewa baada ya muda wa kulipia, lakini nafasi bado ilikuwa wazi — miadi yako imethibitishwa.',
+        'Daktari Mkononi: your payment arrived after the payment window, but the slot was still free — your appointment is confirmed.',
+      );
+    }
+    return 'confirmed';
+  }
+
+  /**
+   * Less than the fee arrived: never confirmed. The booking is cancelled at
+   * once (slot released, the patient can book again) and everything received
+   * is refunded. Admins see it as UNDERPAID.
+   */
+  private async handleUnderpaid(payment: Payment, receivedTzs: number): Promise<void> {
+    const flagged = await this.flagForReview(
+      payment,
+      'UNDERPAID',
+      `owed TZS ${payment.amountTzs}, received TZS ${receivedTzs} — not confirmed, full refund`,
+    );
+    if (payment.appointmentId !== null) {
+      const appointment = await this.deps.appointments.findById(payment.appointmentId);
+      const transition = appointment ? findAppointmentTransition('PAYMENT_UNDERPAID', appointment.status) : undefined;
+      if (appointment && transition) {
+        const cancelled = await this.deps.appointments.transition(appointment.id, transition.from, {
+          status: transition.to,
+          cancellationReason: 'PAYMENT_UNDERPAID',
+        });
+        if (cancelled) {
+          await this.deps.auditLogs.append({
+            actorUserId: null,
+            action: 'APPOINTMENT_TRANSITION',
+            resourceType: 'Appointment',
+            resourceId: appointment.id,
+            ipAddress: null,
+            userAgent: null,
+            metadata: { event: 'PAYMENT_UNDERPAID', from: transition.from, to: transition.to },
+          });
+        }
+      }
+    }
+    await this.smsPatient(
+      flagged,
+      `Daktari Mkononi: tumepokea TZS ${receivedTzs} lakini ada ni TZS ${payment.amountTzs}. Miadi haikuthibitishwa; pesa yako yote inarudishwa. Tafadhali weka miadi tena.`,
+      `Daktari Mkononi: we received TZS ${receivedTzs} but the fee is TZS ${payment.amountTzs}. The appointment was not confirmed; everything you paid is being refunded. Please book again.`,
+    );
+    await this.refundPayment(flagged, `underpaid: received ${receivedTzs} of ${payment.amountTzs}`, null, 'FULL');
+  }
+
+  /** More than the fee arrived: the booking stands; the difference goes back. */
+  private async handleOverpaid(payment: Payment, excessTzs: number): Promise<void> {
+    const current = (await this.deps.payments.findById(payment.id)) ?? payment;
+    const flagged = await this.flagForReview(
+      current,
+      'OVERPAID',
+      `owed TZS ${payment.amountTzs}, received TZS ${payment.amountTzs + excessTzs} — confirmed, TZS ${excessTzs} refunded`,
+    );
+    await this.refundPayment(flagged, `overpaid by TZS ${excessTzs}`, null, 'EXCESS');
+  }
+
+  private async handleLateSuccess(
+    payment: Payment,
+    appointment: Appointment | null,
+    reason: string | null = null,
+  ): Promise<void> {
     const why =
-      appointment === null
+      reason ??
+      (appointment === null
         ? 'APPOINTMENT_MISSING'
         : appointment.status === 'PENDING_PAYMENT'
           ? 'APPOINTMENT_EXPIRED'
-          : `APPOINTMENT_${appointment.status}`;
+          : `APPOINTMENT_${appointment.status}`);
     const flagged = await this.flagForReview(payment, 'LATE_SUCCESS', why);
     await this.notifyLateSuccess(flagged);
     await this.refundPayment(flagged, `late-success: ${why}`, null);
@@ -730,8 +889,11 @@ export class PaymentService implements PaymentPort {
   }
 
   /**
-   * Full refund of what was actually received, paid back to the payer's
-   * wallet as an AzamPay disbursement (AzamPay has no refund API). The refund
+   * Refund paid back to the payer's wallet as an AzamPay disbursement
+   * (AzamPay has no refund API). FULL returns everything still held
+   * (received − any excess already refunded) and ends with the payment
+   * REFUNDED; EXCESS returns only an overpayment's difference and leaves the
+   * payment COMPLETED, the booking and the doctor's earning untouched. The refund
    * is CLAIMED with a guarded transition first (refundState null/FAILED →
    * PROCESSING), so two triggers — a cancel racing a late success, an admin
    * double-click — can never send the money back twice. Each attempt gets its
@@ -748,11 +910,14 @@ export class PaymentService implements PaymentPort {
     payment: Payment,
     reason: string,
     actorUserId: string | null,
+    kind: NonNullable<Payment['refundKind']> = 'FULL',
   ): Promise<Payment> {
-    const amountTzs = payment.receivedAmountTzs ?? payment.amountTzs;
+    const amountTzs = PaymentService.refundAmountFor(payment, kind);
+    if (amountTzs <= 0) return payment;
     const attempt = payment.refundAttempts + 1;
     const claimed = await this.deps.payments.transitionRefundState(payment.id, [null, 'FAILED'], {
       refundState: 'PROCESSING',
+      refundKind: kind,
       refundAmountTzs: amountTzs,
       refundReason: reason,
       refundPending: false,
@@ -776,7 +941,7 @@ export class PaymentService implements PaymentPort {
         const pending = await this.deps.payments.update(payment.id, {
           refundReference: result.refundReference,
         });
-        await this.audit(actorUserId, 'PAYMENT_REFUND_REQUESTED', payment.id, { reason, amountTzs, attempt });
+        await this.audit(actorUserId, 'PAYMENT_REFUND_REQUESTED', payment.id, { reason, amountTzs, attempt, kind });
         return pending;
       }
       return (await this.completeRefund(claimed, result.refundReference, actorUserId, false)) ?? claimed;
@@ -799,13 +964,25 @@ export class PaymentService implements PaymentPort {
     }
   }
 
-  /** COMPLETED → REFUNDED, once. Returns null when another path finished it first. */
+  /** What a refund of this kind pays back right now. */
+  private static refundAmountFor(payment: Payment, kind: NonNullable<Payment['refundKind']>): number {
+    const received = payment.receivedAmountTzs ?? payment.amountTzs;
+    return kind === 'EXCESS' ? received - payment.amountTzs : received - payment.excessRefundedTzs;
+  }
+
+  /**
+   * FULL: COMPLETED → REFUNDED, once. EXCESS: the payment stays COMPLETED;
+   * the refund slot is released (refundState null) and the amount recorded
+   * in excessRefundedTzs, so a later cancellation can still refund the rest.
+   * Returns null when another path finished it first.
+   */
   private async completeRefund(
     payment: Payment,
     refundReference: string,
     actorUserId: string | null,
     manual: boolean,
   ): Promise<Payment | null> {
+    if (payment.refundKind === 'EXCESS') return this.completeExcessRefund(payment, refundReference, actorUserId, manual);
     const refunded = await this.deps.payments.transitionStatus(payment.id, ['COMPLETED'], {
       status: 'REFUNDED',
       refundState: 'COMPLETED',
@@ -822,6 +999,40 @@ export class PaymentService implements PaymentPort {
     await this.adjustDoctorEarning(refunded);
     await this.notifyRefund(refunded);
     return refunded;
+  }
+
+  private async completeExcessRefund(
+    payment: Payment,
+    refundReference: string,
+    actorUserId: string | null,
+    manual: boolean,
+  ): Promise<Payment | null> {
+    const amountTzs = payment.refundAmountTzs ?? PaymentService.refundAmountFor(payment, 'EXCESS');
+    const done = await this.deps.payments.transitionRefundState(payment.id, ['PROCESSING', 'FAILED'], {
+      refundState: null,
+      refundKind: null,
+      refundPending: false,
+      refundAmountTzs: null,
+      refundReason: null,
+      refundReference: null,
+      excessRefundedTzs: payment.excessRefundedTzs + amountTzs,
+      excessRefundReference: refundReference,
+      excessRefundedAt: this.now(),
+    });
+    if (!done) return null;
+    await this.audit(actorUserId, 'PAYMENT_EXCESS_REFUNDED', payment.id, { amountTzs, manual, refundReference });
+    await this.smsPatient(
+      done,
+      `Daktari Mkononi: ulilipa zaidi ya ada; TZS ${amountTzs} zimerudishwa kwenye mkoba wako wa simu. Miadi yako bado imethibitishwa.`,
+      `Daktari Mkononi: you paid more than the fee; TZS ${amountTzs} has been refunded to your mobile money wallet. Your appointment is still confirmed.`,
+    );
+    // The booking may have been cancelled while the excess was in flight: the
+    // full refund was blocked by the claim then — run it now.
+    if (done.appointmentId !== null) {
+      const appointment = await this.deps.appointments.findById(done.appointmentId);
+      if (appointment?.status === 'CANCELLED') await this.refundPayment(done, 'cancelled after overpayment', null, 'FULL');
+    }
+    return done;
   }
 
   /**
@@ -1085,7 +1296,9 @@ export class PaymentService implements PaymentPort {
         { refundState: payment.refundState },
       );
     }
-    return this.toView(await this.refundPayment(payment, payment.refundReason ?? 'retry', adminUserId));
+    return this.toView(
+      await this.refundPayment(payment, payment.refundReason ?? 'retry', adminUserId, payment.refundKind ?? 'FULL'),
+    );
   }
 
   /**
@@ -1118,7 +1331,9 @@ export class PaymentService implements PaymentPort {
     }
     const prepared =
       payment.refundAmountTzs === null
-        ? await this.deps.payments.update(payment.id, { refundAmountTzs: payment.receivedAmountTzs ?? payment.amountTzs })
+        ? await this.deps.payments.update(payment.id, {
+            refundAmountTzs: PaymentService.refundAmountFor(payment, payment.refundKind ?? 'FULL'),
+          })
         : payment;
     const refunded = await this.completeRefund(prepared, `MANUAL:${reference}`, adminUserId, true);
     if (!refunded) throw PAYMENT_NOT_FOUND();
@@ -1126,7 +1341,7 @@ export class PaymentService implements PaymentPort {
     return this.toView(refunded);
   }
 
-  /** Admin review queue: late successes, amount mismatches, stuck and stray payments. */
+  /** Admin review queue: late successes, under/over-payments, unreadable amounts, stuck and stray payments. */
   async reviewQueue(): Promise<{ items: PaymentView[] }> {
     const items = await this.deps.payments.listReviewQueue();
     return { items: items.map((payment) => this.toView(payment)) };
@@ -1176,6 +1391,9 @@ export class PaymentService implements PaymentPort {
       refundPending: payment.refundPending,
       refundState: payment.refundState,
       refundAmountTzs: payment.refundAmountTzs,
+      refundKind: payment.refundKind,
+      excessRefundedTzs: payment.excessRefundedTzs,
+      excessRefundedAt: payment.excessRefundedAt,
       receivedAmountTzs: payment.receivedAmountTzs,
       reviewReason: payment.reviewReason,
       reviewNote: payment.reviewNote,

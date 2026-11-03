@@ -44,6 +44,7 @@ import { buildReportRoutes } from './modules/reports/reports.routes.js';
 import { buildPaymentRoutes } from './modules/payments/payment.routes.js';
 import { buildAzamPayWebhookRoutes } from './modules/payments/webhook.routes.js';
 import { buildDevRoutes } from './modules/dev/dev.routes.js';
+import { devRoutesEnabled } from './lib/dev-routes-gate.js';
 
 export interface BuildAppOptions {
   deps: AppDeps;
@@ -54,6 +55,13 @@ export interface BuildAppOptions {
   /** Test hook: capture pino output on a stream (forces the logger on). */
   loggerStream?: { write: (msg: string) => void };
   now?: () => Date;
+  /** Business settings from env (tests override; defaults are the product decisions). */
+  settings?: AppSettings;
+}
+
+export interface AppSettings {
+  /** Late payment still confirms within this long after the window, if the slot is free. */
+  paymentGraceMs?: number;
 }
 
 export interface BuiltApp {
@@ -183,6 +191,7 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
       sms: options.deps.sms,
       auditLogs: options.deps.auditLogs,
       fees: feeSettingsService,
+      ...(options.settings?.paymentGraceMs !== undefined ? { paymentGraceMs: options.settings.paymentGraceMs } : {}),
     },
     now,
   );
@@ -320,8 +329,9 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
       prefix: '/webhooks/azampay',
     },
   );
-  // Dev-only helpers — never registered in production (see dev.routes.ts).
-  if (env.NODE_ENV !== 'production') {
+  // Dev-only helpers — never registered where real money exists (see
+  // lib/dev-routes-gate.ts; dev.routes.ts re-checks on every request).
+  if (devRoutesEnabled(env)) {
     await app.register(
       buildDevRoutes(
         paymentService,

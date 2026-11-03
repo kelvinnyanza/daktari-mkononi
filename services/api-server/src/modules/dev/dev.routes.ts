@@ -1,17 +1,21 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { env } from '@daktari/config';
 import { z } from 'zod';
 import { idSchema } from '@daktari/schemas';
 import { ApiError, msg } from '../../lib/errors.js';
 import type { AppointmentRepoPort, PaymentRepoPort, SessionRepoPort } from '../../lib/ports.js';
+import { devRoutesEnabled } from '../../lib/dev-routes-gate.js';
 import { makeAuthenticate } from '../../middleware/authenticate.js';
 import type { PaymentService } from '../payments/payment.service.js';
 
 const paramsSchema = z.object({ appointmentId: idSchema });
 
 /**
- * DEV-ONLY routes. app.ts registers this plugin ONLY when
- * NODE_ENV !== 'production' (asserted in the production-guard test), so these
- * endpoints do not exist in a production build at all.
+ * DEV-ONLY routes. app.ts registers this plugin ONLY when devRoutesEnabled()
+ * (NODE_ENV and AZAMPAY_ENV both non-production), and every request re-checks
+ * it — defence in depth, asserted in tests/dev-routes.test.ts. The server
+ * also refuses to start with AZAMPAY_ENV=production unless
+ * NODE_ENV=production (production-guard), so the two cannot disagree.
  *
  * Why it exists: a phone on the LAN can complete a mobile-money booking
  * without hand-signing an AzamPay webhook. It drives the SAME
@@ -28,6 +32,9 @@ export function buildDevRoutes(
   const authenticate = makeAuthenticate(sessions, now);
 
   return async (app) => {
+    app.addHook('onRequest', async (_request, reply) => {
+      if (!devRoutesEnabled(env)) await reply.code(404).send({ error: { code: 'NOT_FOUND' } });
+    });
     app.post(
       '/payments/:appointmentId/complete',
       { preHandler: [authenticate] },

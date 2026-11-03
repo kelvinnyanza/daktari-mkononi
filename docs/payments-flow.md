@@ -68,19 +68,39 @@ needs no code change; (b) ask AzamPay for a checkout status endpoint or a
 signed callback re-send; (c) use the hosted Checkout Pages flow instead of
 MNO push, if its redirect carries a verifiable result. We recommend (a) now
 and (b) in parallel.
-4. **Amount check.** If AzamPay reports a different amount from the fee owed
-   (or an unreadable one), the money is recorded as received but the
-   appointment is **not** confirmed, nothing is refunded automatically, and
-   admins are alerted (`AMOUNT_MISMATCH`).
+4. **Amount check** (13b). The money is always recorded as received; then:
+   - **Underpaid** (less than the fee) → **not** confirmed; the booking is
+     cancelled at once (slot released, the patient can book again) and
+     **everything received is refunded**. Admins see `UNDERPAID`.
+   - **Overpaid** (more than the fee) → **confirmed** like an exact payment,
+     and **the difference is refunded**. The payment stays `COMPLETED`; the
+     doctor's share is computed on the fee, not on what arrived. If the
+     booking is later cancelled, the rest (the fee) is refunded separately.
+     Admins see `OVERPAID`.
+   - **Unreadable** amount → not confirmed, nothing automatic, admins decide
+     (`AMOUNT_MISMATCH`).
 5. **Success while still payable** → payment `COMPLETED`, appointment
-   `CONFIRMED`.
+   `CONFIRMED`. "Still payable" includes the **grace period** below.
 6. **Failure** → payment `FAILED`; the patient may retry (new attempt and
    reference) while the window is open.
 
+### Grace period (13b)
+
+The patient has 30 minutes to pay; then the booking is cancelled
+(`PAYMENT_TIMEOUT`) and the slot is released for others. A payment that
+completes **up to 5 minutes after** the window (setting
+`PAYMENT_GRACE_MINUTES`, 0–30, default 5) still **confirms the booking if
+the slot is still free** — the booking is reinstated and the patient gets an
+SMS. If someone else booked the slot in the meantime, it is a late success
+(`LATE_SUCCESS`, note `SLOT_TAKEN`) and is refunded. Only a timeout is ever
+reinstated — a booking the patient or doctor cancelled never is. "Completes"
+means when we learn of it (callback or status check); a success we only find
+later on a statement is past grace and refunded.
+
 ### Late or orphan payments (the old "charged, no service" hole — closed)
 
-If a payment succeeds for an appointment that has expired, been cancelled or
-otherwise cannot be confirmed:
+If a payment succeeds for an appointment that has expired past the grace
+period, lost its slot, been cancelled or otherwise cannot be confirmed:
 
 - the appointment is **not** confirmed;
 - the payment is flagged `LATE_SUCCESS` on the admin **Needs review** list
@@ -126,7 +146,9 @@ exactly the doctor's listed fee.
 - VAT on top: VAT = commission × VAT %, rounded the same way;
   doctor = fee − commission − VAT
 - VAT included: VAT = commission × VAT ÷ (100 + VAT), rounded;
-  doctor = fee − commission; platform keeps commission − VAT
+  doctor = fee − commission; platform keeps commission − VAT. **The VAT comes
+  out of the platform's commission, not the doctor's share** — the doctor
+  receives the same as with VAT switched off.
 - The doctor receives the exact remainder, so commission (excl. VAT) + VAT +
   doctor share always equals the fee — checked by an automated test over
   20,000 random fees and rates.
@@ -139,7 +161,8 @@ exactly the doctor's listed fee.
 | 20,000 | 4,000 | 720 | **15,280** |
 | 50,000 | 10,000 | 1,800 | **38,200** |
 
-Same fees with **VAT included in the 20% commission**:
+Same fees with **VAT included in the 20% commission** — the VAT is paid out
+of the platform's 20%; the doctor's 80% is untouched:
 
 | Fee | Commission charged | of which VAT | Platform keeps | Doctor receives |
 |---|---|---|---|---|
@@ -231,6 +254,7 @@ so this is an upload.)
 | Admin | Payments | All payments, filters, split with VAT and rates, **Needs review** queue, **Refunds pending** (retry / mark done manually / chase note), full refund |
 | Admin | Fees & VAT | Current rates, worked examples, dated changes, history |
 | Admin | Doctors | Fee and commission override per doctor |
+| Admin | Needs review | Late successes, under/over-payments (with the difference refunded), unreadable amounts, stuck and stray payments, status conflicts |
 | Admin | Doctor payouts | Preview, draft, approve, retry, mark paid; accounts awaiting manual verification |
 | Admin | Finance reports | Totals, CSV, statement reconciliation |
 | Doctor | Earnings | Owed / being paid / paid totals, per-consultation breakdown, payout account |

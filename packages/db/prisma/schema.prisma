@@ -167,7 +167,9 @@ enum PaymentStatus {
 // audit entry; cleared by an admin resolving it (reviewResolvedAt).
 enum PaymentReviewReason {
   LATE_SUCCESS // money arrived for an appointment that was no longer payable → auto-refund
-  AMOUNT_MISMATCH // provider-reported amount ≠ amount owed → never confirmed
+  AMOUNT_MISMATCH // provider amount unreadable → never confirmed, an admin decides
+  UNDERPAID // received < owed → not confirmed, full refund of what was received
+  OVERPAID // received > owed → confirmed, the difference refunded
   STUCK_PROCESSING // abandoned payment still not final after 24h of status checks
   STRAY_ATTEMPT // a superseded attempt reported success → money held outside the current attempt
   STATUS_CONFLICT // signed callback and status query disagree → nothing applied until an admin checks
@@ -179,9 +181,15 @@ enum RefundState {
   FAILED // provider refused / unsupported → admin retries or completes manually
 }
 
+// What the refund in flight pays back.
+enum RefundKind {
+  FULL // everything still held (received − already-refunded excess) → payment REFUNDED
+  EXCESS // only an overpayment's difference → payment stays COMPLETED, earning untouched
+}
+
 enum VatMode {
-  ON_TOP_OF_COMMISSION // VAT added on top of the commission, also deducted from the doctor's share
-  INCLUDED_IN_COMMISSION // the commission already contains the VAT
+  ON_TOP_OF_COMMISSION // VAT added on top of the commission; doctor's share = fee − commission − VAT
+  INCLUDED_IN_COMMISSION // the commission already contains the VAT: it comes out of the PLATFORM's commission; doctor's share = fee − commission
 }
 
 enum DoctorPaymentStatus {
@@ -837,6 +845,12 @@ model Payment {
   refundedAt              DateTime?
   refundState             RefundState?
   refundAttempts          Int               @default(0) // refund disbursement reference = r<attempt>-<paymentId>
+  refundKind              RefundKind? // set when a refund is claimed; null once an EXCESS refund completes
+  // Overpayment difference already paid back (EXCESS refund). A later FULL
+  // refund returns receivedAmountTzs − excessRefundedTzs.
+  excessRefundedTzs       Int               @default(0)
+  excessRefundReference   String?
+  excessRefundedAt        DateTime?
   // What the provider says it actually collected (callback/status/statement).
   receivedAmountTzs       Int?
   // Admin review queue (late success, amount mismatch, stuck, stray attempt).

@@ -66,13 +66,26 @@ export function findProductionAdapterOffenders(env: Env): string[] {
   return offenders;
 }
 
+/**
+ * Configurations that are dangerous whatever NODE_ENV says. Real-money
+ * AzamPay hosts with NODE_ENV left at its `development` default would skip
+ * every production check above AND expose the dev "mark as paid" route.
+ */
+export function findEnvironmentMismatches(env: Env): string[] {
+  const offenders: string[] = [];
+  if (env.AZAMPAY_ENV === 'production' && env.NODE_ENV !== 'production') {
+    offenders.push('NODE_ENV (AZAMPAY_ENV=production requires NODE_ENV=production)');
+  }
+  return offenders;
+}
+
 export class ProductionReadinessError extends Error {
   constructor(readonly offenders: string[]) {
     super(
-      `Refusing to start in production: the following provider adapters are ` +
-        `unconfigured (would fall back to fake/console adapters or reject ` +
-        `requests): ${offenders.join(', ')}. Set every listed variable and ` +
-        `restart.`,
+      `Refusing to start: the following settings are unconfigured or unsafe ` +
+        `for production (would fall back to fake/console adapters, reject ` +
+        `requests, or expose dev-only routes): ${offenders.join(', ')}. Fix ` +
+        `every listed variable and restart.`,
     );
     this.name = 'ProductionReadinessError';
   }
@@ -80,6 +93,6 @@ export class ProductionReadinessError extends Error {
 
 /** Throws ProductionReadinessError naming every offender when unsafe to boot. */
 export function assertProductionReady(env: Env): void {
-  const offenders = findProductionAdapterOffenders(env);
+  const offenders = [...findEnvironmentMismatches(env), ...findProductionAdapterOffenders(env)];
   if (offenders.length > 0) throw new ProductionReadinessError(offenders);
 }
