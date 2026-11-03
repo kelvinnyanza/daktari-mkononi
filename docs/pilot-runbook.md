@@ -223,12 +223,30 @@ calendar day.
    payment with the dev-only endpoint:
 
 ```powershell
-# Dev only. This route is NOT registered when NODE_ENV=production
-# (asserted in tests/production-guard.test.ts).
-Invoke-RestMethod -Method Post `
-  -Uri "http://localhost:4000/api/v1/dev/payments/$APPOINTMENT_ID/complete" `
-  -Headers @{ Authorization = "Bearer $PATIENT_TOKEN" }
+# Dev only. The route does not exist when NODE_ENV=production or
+# AZAMPAY_ENV=production (tests/dev-routes.test.ts), and the API refuses to
+# start with AZAMPAY_ENV=production unless NODE_ENV=production.
+$Api = "http://localhost:4000"
+
+# 1. Sign in as the PATIENT (same phone + password as in the app).
+$login = Invoke-RestMethod -Method Post -Uri "$Api/api/v1/auth/login" `
+  -ContentType "application/json" `
+  -Body (@{ phone = "+2557XXXXXXXX"; password = "<patient password>" } | ConvertTo-Json)
+$Headers = @{ Authorization = "Bearer $($login.accessToken)" }
+
+# 2. The booking that is waiting for payment (newest first).
+$mine = Invoke-RestMethod -Uri "$Api/api/v1/appointments/me?status=PENDING_PAYMENT&pageSize=20" -Headers $Headers
+$appointment = $mine.items | Select-Object -First 1
+$appointment | Select-Object id, status, scheduledAt
+
+# 3. Mark it paid (no body, so no Content-Type header).
+Invoke-RestMethod -Method Post -Headers $Headers `
+  -Uri "$Api/api/v1/dev/payments/$($appointment.id)/complete"
 ```
+
+If step 1 fails with `PHONE_NOT_VERIFIED` (or returns `status: 2FA_REQUIRED`
+and no `accessToken`), finish the OTP in the app first; if step 2 lists nothing, the booking already expired
+(30 minutes + 5 minutes grace) — book again.
 
 It drives exactly the same `applyPaymentResult` path the aggregator webhook
 uses, so the state transition and the doctor's earnings accrual are identical

@@ -270,7 +270,8 @@ async function headlessJoin(roomUrl, token) {
   try {
     const page = await browser.newPage();
     await page.goto(origin);
-    return await page.evaluate(([url, meetingToken]) => window.joinRoom(url, meetingToken), [roomUrl, token]);
+    // Runs in the page (browser), where JOIN_PAGE defined joinRoom.
+    return await page.evaluate(([url, meetingToken]) => globalThis.joinRoom(url, meetingToken), [roomUrl, token]);
   } finally {
     await browser.close().catch(() => undefined);
     server.close();

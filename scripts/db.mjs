@@ -13,7 +13,6 @@
 import { spawnSync } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { access, cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -34,8 +34,10 @@ export function buildAzamPayWebhookRoutes(
   return async (app) => {
     // Scoped parser: a malformed body is OUR 400, not Fastify's generic error.
     app.removeContentTypeParser('application/json');
+    // text/plain too: a provider sending the wrong header must never turn a
+    // real payment callback into a 415 (the body is JSON-parsed below anyway).
     app.addContentTypeParser(
-      'application/json',
+      ['application/json', 'text/plain'],
       { parseAs: 'string' },
       (_request, body, done) => done(null, body),
     );

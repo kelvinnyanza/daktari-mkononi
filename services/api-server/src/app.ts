@@ -127,6 +127,11 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
 
   await app.register(compress);
 
+  // The API speaks JSON (and multipart for uploads). Fastify's built-in
+  // text/plain parser let a text body reach a JSON route as a string and fail
+  // as a vague validation error; without it, that is a 415 that says so.
+  app.removeContentTypeParser('text/plain');
+
   // Web portal refresh-token cookie (httpOnly, SameSite=Strict, /refresh only).
   await app.register(cookie);
 

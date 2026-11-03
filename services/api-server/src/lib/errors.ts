@@ -64,6 +64,27 @@ const MESSAGES = {
   rateLimited: msg('Maombi mengi mno — jaribu tena baadaye', 'Too many requests — try again later'),
   notFound: msg('Huduma haipatikani', 'Resource not found'),
   internal: msg('Hitilafu imetokea upande wetu — jaribu tena', 'Something went wrong on our side — please try again'),
+  unsupportedMediaType: msg(
+    'Aina ya maudhui (Content-Type) haikubaliki — tuma JSON yenye kichwa "Content-Type: application/json" (au multipart/form-data kwa kupakia faili)',
+    'Unsupported Content-Type — send JSON with the header "Content-Type: application/json" (or multipart/form-data for file uploads)',
+  ),
+  emptyJsonBody: msg(
+    'Kichwa ni "Content-Type: application/json" lakini mwili ni tupu — tuma kitu cha JSON (hata {}) au ondoa kichwa hicho',
+    'The header says "Content-Type: application/json" but the body is empty — send a JSON object (even {}) or drop the header',
+  ),
+  malformedJson: msg(
+    'Mwili si JSON halali — angalia mabano na alama za nukuu',
+    'The body is not valid JSON — check brackets and quotes',
+  ),
+  payloadTooLarge: msg('Ombi ni kubwa mno', 'The request body is too large'),
+};
+
+/** Fastify body-parser failures → a code + message that say what to fix. */
+const FRAMEWORK_ERRORS: Record<string, { status: number; code: string; message: BilingualMessage }> = {
+  FST_ERR_CTP_INVALID_MEDIA_TYPE: { status: 415, code: 'UNSUPPORTED_MEDIA_TYPE', message: MESSAGES.unsupportedMediaType },
+  FST_ERR_CTP_EMPTY_JSON_BODY: { status: 400, code: 'EMPTY_JSON_BODY', message: MESSAGES.emptyJsonBody },
+  FST_ERR_CTP_INVALID_JSON_BODY: { status: 400, code: 'MALFORMED_JSON', message: MESSAGES.malformedJson },
+  FST_ERR_CTP_BODY_TOO_LARGE: { status: 413, code: 'PAYLOAD_TOO_LARGE', message: MESSAGES.payloadTooLarge },
 };
 
 /**
@@ -102,6 +123,12 @@ export function errorHandler(
   }
 
   const statusCode = 'statusCode' in error ? error.statusCode : undefined;
+
+  const framework = 'code' in error && typeof error.code === 'string' ? FRAMEWORK_ERRORS[error.code] : undefined;
+  if (framework !== undefined) {
+    void reply.code(framework.status).send(body(request, framework.code, framework.message));
+    return;
+  }
 
   if (statusCode === 429) {
     void reply.code(429).send(body(request, 'RATE_LIMITED', MESSAGES.rateLimited));
