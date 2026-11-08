@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { doctorSpecialtySchema } from '@daktari/schemas';
 import { en, sw } from './translations';
 
 /**
@@ -27,6 +28,7 @@ const FAMILIES: Record<string, readonly string[]> = {
   'weekday.': ['0', '1', '2', '3', '4', '5', '6'],
   'booking.type.': prismaEnum('AppointmentType'),
   'booking.intent.': ['MOBILE_MONEY', 'NHIF', 'CASH_AT_FACILITY'],
+  'specialty.': doctorSpecialtySchema.options,
 };
 
 function sourceFiles(dir: string): string[] {
