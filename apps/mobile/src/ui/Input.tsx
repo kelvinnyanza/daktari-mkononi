@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { TextInput, View, type TextInputProps } from 'react-native';
 import { createStyles, layout, radius, space, type, useTheme } from '../theme/theme';
+import { useT } from '../i18n';
 import { Icon, type IconName } from './Icon';
+import { IconButton } from './IconButton';
 import { Text } from './Text';
 
 export interface InputProps extends Omit<TextInputProps, 'style' | 'editable'> {
@@ -11,6 +13,8 @@ export interface InputProps extends Omit<TextInputProps, 'style' | 'editable'> {
   /** Replaces the hint, turns the border red, announced politely. */
   error?: string | undefined;
   leadingIcon?: IconName;
+  /** Small trailing control inside the field (e.g. show-password IconButton). */
+  trailing?: ReactNode;
   disabled?: boolean;
 }
 
@@ -24,6 +28,7 @@ export function Input({
   hint,
   error,
   leadingIcon,
+  trailing,
   disabled = false,
   onFocus,
   onBlur,
@@ -69,6 +74,7 @@ export function Input({
           }}
           {...inputProps}
         />
+        {trailing}
       </View>
       {hasError ? (
         <View style={styles.messageRow} accessibilityLiveRegion="polite">
@@ -83,6 +89,27 @@ export function Input({
         </Text>
       ) : null}
     </View>
+  );
+}
+
+/** Password field with a 48dp show/hide toggle ("Onyesha nenosiri" / "Show password"). */
+export function PasswordInput(props: Omit<InputProps, 'secureTextEntry' | 'trailing'>): React.JSX.Element {
+  const t = useT();
+  const [visible, setVisible] = useState(false);
+  return (
+    <Input
+      {...props}
+      secureTextEntry={!visible}
+      autoCapitalize="none"
+      autoCorrect={false}
+      trailing={
+        <IconButton
+          icon={visible ? 'eye-off' : 'eye'}
+          accessibilityLabel={visible ? t('a11y.hidePassword') : t('a11y.showPassword')}
+          onPress={() => setVisible((value) => !value)}
+        />
+      }
+    />
   );
 }
 

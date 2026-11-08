@@ -60,6 +60,7 @@ export function StylePreview(): React.JSX.Element {
 
   return (
     <Screen
+      edges={['top', 'left', 'right']}
       header={
         <Header
           title={c.title}

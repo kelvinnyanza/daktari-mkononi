@@ -75,22 +75,53 @@ function dial(number: '112' | '115'): void {
 }
 
 /**
- * The always-visible top strip (patient shell). Solid emergency red, white
- * bold text — the same in every theme. Tapping dials 112.
+ * The always-visible top strip (auth + patient shells): "Dharura?" and two
+ * white call buttons. Each opens the phone dialer with 112 / 115 filled in
+ * (tel: — the user still presses call). Solid emergency red in every theme.
  */
 export function EmergencyStrip(): React.JSX.Element {
   const styles = useStyles();
   const t = useT();
   return (
+    <View style={styles.strip}>
+      <View style={styles.stripLabel}>
+        <Icon name="alert-triangle" size={18} color={styles.stripText.color} />
+        <Text variant="label" style={styles.stripText}>
+          {t('emergency.short')}
+        </Text>
+      </View>
+      <View style={styles.stripButtons}>
+        <StripCallButton number="112" label={t('emergency.call112')} accessibilityLabel={t('emergency.call112.a11y')} />
+        <StripCallButton number="115" label={t('emergency.call115.short')} accessibilityLabel={t('emergency.call115')} />
+      </View>
+    </View>
+  );
+}
+
+function StripCallButton({
+  number,
+  label,
+  accessibilityLabel,
+}: {
+  number: '112' | '115';
+  label: string;
+  accessibilityLabel: string;
+}): React.JSX.Element {
+  const styles = useStyles();
+  const ring = useFocusRing();
+  return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${t('emergency.banner')}. ${t('emergency.call112')}`}
-      onPress={() => dial('112')}
-      style={({ pressed }) => [styles.strip, pressed && styles.stripPressed]}
+      accessibilityLabel={accessibilityLabel}
+      onPress={() => dial(number)}
+      onFocus={ring.onFocus}
+      onBlur={ring.onBlur}
+      hitSlop={{ top: 4, bottom: 4 }}
+      style={({ pressed }) => [styles.stripButton, pressed && styles.callButtonPressed, ring.focused && styles.callFocused]}
     >
-      <Icon name="phone-call" size={16} color={styles.stripText.color} />
-      <Text variant="label" tone="onEmergency" style={styles.stripText}>
-        {t('emergency.banner')}
+      <Icon name="phone" size={16} color={styles.callLabel.color} />
+      <Text variant="label" style={styles.stripButtonLabel}>
+        {label}
       </Text>
     </Pressable>
   );
@@ -159,16 +190,30 @@ const useStyles = createStyles((c) => ({
   focused: { borderColor: c.focus },
   strip: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: space[2],
-    minHeight: 40,
-    paddingVertical: space[2],
+    justifyContent: 'space-between',
+    columnGap: space[3],
+    rowGap: space[1],
+    paddingVertical: space[1] + 2,
     paddingHorizontal: space[4],
     backgroundColor: c.emergencyBg,
   },
-  stripPressed: { backgroundColor: c.emergencyPressed },
-  stripText: { color: c.onEmergency, fontFamily: fontFamily.bold, flexShrink: 1, textAlign: 'center' },
+  stripLabel: { flexDirection: 'row', alignItems: 'center', gap: space[1] + 2, flexShrink: 1 },
+  stripText: { color: c.onEmergency, fontFamily: fontFamily.bold, flexShrink: 1 },
+  stripButtons: { flexDirection: 'row', gap: space[2], marginLeft: 'auto' },
+  stripButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1],
+    minHeight: 44,
+    paddingHorizontal: space[3],
+    borderRadius: radius.pill,
+    backgroundColor: c.onEmergency,
+    borderWidth: 2,
+    borderColor: c.onEmergency,
+  },
+  stripButtonLabel: { color: c.emergencyBg, fontFamily: fontFamily.bold },
   emergencyCard: {
     gap: space[3],
     padding: space[4],

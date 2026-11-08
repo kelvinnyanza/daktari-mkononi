@@ -1,7 +1,9 @@
 import { loginSchema } from '@daktari/schemas';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Body, Button, LinkButton, Screen, TextField, Title, EmergencyBanner } from '../../src/components/ui';
+import { View } from 'react-native';
+import { space } from '../../src/theme/theme';
+import { Banner, Button, Input, Logo, PasswordInput, Screen, Stack, Text } from '../../src/ui';
 import { useT } from '../../src/i18n';
 import { errorMessage } from '../../src/lib/errors';
 import { validateForm, type FieldErrors } from '../../src/lib/form';
@@ -56,27 +58,37 @@ export default function Login(): React.JSX.Element {
 
   return (
     <Screen>
-      <EmergencyBanner />
-      <Title>{t('auth.login.title')}</Title>
-      <TextField
-        label={t('auth.login.phone')}
-        value={phone}
-        onChangeText={setPhone}
-        keyboardType="phone-pad"
-        autoCapitalize="none"
-        error={fieldErrors.phone}
-      />
-      <TextField
-        label={t('auth.login.password')}
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        error={fieldErrors.password}
-      />
-      {formError !== null ? <Body>{formError}</Body> : null}
-      <Button label={t('auth.login.submit')} onPress={() => void submit()} disabled={busy} />
-      <LinkButton label={t('auth.login.noAccount')} onPress={() => router.push('/(auth)/register')} />
-      <LinkButton label={t('auth.login.forgot')} onPress={() => router.push('/(auth)/forgot-password')} />
+      <View style={{ alignItems: 'center', paddingTop: space[6] }}>
+        <Logo size="lg" stacked tagline />
+      </View>
+      <Stack gap={4}>
+        <Text variant="title" accessibilityRole="header">
+          {t('auth.login.title')}
+        </Text>
+        <Input
+          label={t('auth.login.phone')}
+          leadingIcon="phone"
+          value={phone}
+          onChangeText={setPhone}
+          keyboardType="phone-pad"
+          autoCapitalize="none"
+          autoComplete="tel"
+          placeholder="0712 345 678"
+          error={fieldErrors.phone}
+        />
+        <PasswordInput
+          label={t('auth.login.password')}
+          leadingIcon="lock"
+          value={password}
+          onChangeText={setPassword}
+          autoComplete="current-password"
+          error={fieldErrors.password}
+        />
+        {formError !== null ? <Banner tone="danger" message={formError} /> : null}
+        <Button label={t('auth.login.submit')} icon="log-in" onPress={() => void submit()} loading={busy} />
+        <Button variant="ghost" label={t('auth.login.forgot')} onPress={() => router.push('/(auth)/forgot-password')} />
+      </Stack>
+      <Button variant="secondary" label={t('auth.login.noAccount')} onPress={() => router.push('/(auth)/register')} />
       <DevStylePreviewEntry />
     </Screen>
   );

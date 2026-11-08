@@ -1,7 +1,7 @@
 import { forgotPasswordSchema } from '@daktari/schemas';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Body, Button, Screen, TextField, Title } from '../../src/components/ui';
+import { Banner, Button, Header, Input, Screen, Stack, Text } from '../../src/ui';
 import { useT } from '../../src/i18n';
 import { errorMessage } from '../../src/lib/errors';
 import { validateForm, type FieldErrors } from '../../src/lib/form';
@@ -36,19 +36,23 @@ export default function ForgotPassword(): React.JSX.Element {
   };
 
   return (
-    <Screen>
-      <Title>{t('auth.forgot.title')}</Title>
-      <Body muted>{t('auth.forgot.instruction')}</Body>
-      <TextField
-        label={t('auth.login.phone')}
-        value={phone}
-        onChangeText={setPhone}
-        keyboardType="phone-pad"
-        autoCapitalize="none"
-        error={fieldErrors.phone}
-      />
-      {formError !== null ? <Body>{formError}</Body> : null}
-      <Button label={t('auth.forgot.submit')} onPress={() => void submit()} disabled={busy} />
+    <Screen header={<Header title={t('auth.forgot.title')} onBack={() => router.back()} />}>
+      <Stack gap={4}>
+        <Text tone="secondary">{t('auth.forgot.instruction')}</Text>
+        <Input
+          label={t('auth.login.phone')}
+          leadingIcon="phone"
+          value={phone}
+          onChangeText={setPhone}
+          keyboardType="phone-pad"
+          autoCapitalize="none"
+          autoComplete="tel"
+          placeholder="0712 345 678"
+          error={fieldErrors.phone}
+        />
+        {formError !== null ? <Banner tone="danger" message={formError} /> : null}
+        <Button label={t('auth.forgot.submit')} icon="send" onPress={() => void submit()} loading={busy} />
+      </Stack>
     </Screen>
   );
 }

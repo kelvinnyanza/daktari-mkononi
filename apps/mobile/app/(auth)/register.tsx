@@ -1,7 +1,7 @@
 import { patientRegistrationSchema } from '@daktari/schemas';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Body, Button, ChipRow, LinkButton, Screen, TextField, Title } from '../../src/components/ui';
+import { Banner, Button, ChipGroup, Header, Input, PasswordInput, Screen, Stack, Text } from '../../src/ui';
 import { useI18nStore, useT } from '../../src/i18n';
 import { errorMessage } from '../../src/lib/errors';
 import { validateForm, type FieldErrors } from '../../src/lib/form';
@@ -59,50 +59,64 @@ export default function Register(): React.JSX.Element {
   };
 
   return (
-    <Screen>
-      <Title>{t('auth.register.title')}</Title>
-      <TextField
-        label={t('auth.login.phone')}
-        value={phone}
-        onChangeText={setPhone}
-        keyboardType="phone-pad"
-        autoCapitalize="none"
-        error={fieldErrors.phone}
-      />
-      <TextField
-        label={t('auth.login.password')}
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        error={fieldErrors.password}
-      />
-      <TextField
-        label={t('auth.register.fullName')}
-        value={fullName}
-        onChangeText={setFullName}
-        error={fieldErrors.fullName}
-      />
-      <TextField
-        label={t('auth.register.dob')}
-        value={dateOfBirth}
-        onChangeText={setDateOfBirth}
-        placeholder="1995-06-15"
-        autoCapitalize="none"
-        error={fieldErrors.dateOfBirth}
-      />
-      <Body muted>{t('auth.register.gender')}</Body>
-      <ChipRow
-        options={[
-          { value: 'FEMALE', label: t('auth.register.gender.female') },
-          { value: 'MALE', label: t('auth.register.gender.male') },
-        ]}
-        value={gender}
-        onChange={setGender}
-      />
-      {fieldErrors.gender !== undefined ? <Body>{fieldErrors.gender}</Body> : null}
-      {formError !== null ? <Body>{formError}</Body> : null}
-      <Button label={t('auth.register.submit')} onPress={() => void submit()} disabled={busy} />
-      <LinkButton label={t('auth.register.haveAccount')} onPress={() => router.back()} />
+    <Screen header={<Header title={t('auth.register.title')} onBack={() => router.back()} />}>
+      <Stack gap={4}>
+        <Input
+          label={t('auth.login.phone')}
+          leadingIcon="phone"
+          value={phone}
+          onChangeText={setPhone}
+          keyboardType="phone-pad"
+          autoCapitalize="none"
+          autoComplete="tel"
+          placeholder="0712 345 678"
+          error={fieldErrors.phone}
+        />
+        <PasswordInput
+          label={t('auth.login.password')}
+          leadingIcon="lock"
+          value={password}
+          onChangeText={setPassword}
+          autoComplete="new-password"
+          error={fieldErrors.password}
+        />
+        <Input
+          label={t('auth.register.fullName')}
+          leadingIcon="user"
+          value={fullName}
+          onChangeText={setFullName}
+          autoComplete="name"
+          error={fieldErrors.fullName}
+        />
+        <Input
+          label={t('auth.register.dob')}
+          leadingIcon="calendar"
+          value={dateOfBirth}
+          onChangeText={setDateOfBirth}
+          placeholder="1995-06-15"
+          autoCapitalize="none"
+          error={fieldErrors.dateOfBirth}
+        />
+        <Stack gap={2}>
+          <Text variant="label">{t('auth.register.gender')}</Text>
+          <ChipGroup
+            options={[
+              { value: 'FEMALE', label: t('auth.register.gender.female') },
+              { value: 'MALE', label: t('auth.register.gender.male') },
+            ]}
+            value={gender}
+            onChange={setGender}
+          />
+          {fieldErrors.gender !== undefined ? (
+            <Text variant="caption" tone="danger">
+              {fieldErrors.gender}
+            </Text>
+          ) : null}
+        </Stack>
+        {formError !== null ? <Banner tone="danger" message={formError} /> : null}
+        <Button label={t('auth.register.submit')} icon="user-plus" onPress={() => void submit()} loading={busy} />
+        <Button variant="ghost" label={t('auth.register.haveAccount')} onPress={() => router.back()} />
+      </Stack>
     </Screen>
   );
 }

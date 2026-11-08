@@ -11,7 +11,8 @@ export function useResponsive(): { isTablet: boolean; gutter: number } {
 }
 
 /**
- * Every screen's frame: safe area, background, optional header, a scrolling
+ * Every screen's frame: safe area (no top edge by default — EmergencyShell
+ * owns it; root-level screens pass edges with 'top'), background, optional header, a scrolling
  * column capped at maxContentWidth (centred on tablets), and an optional
  * sticky footer for the primary action (thumb reach).
  */
@@ -21,7 +22,7 @@ export function Screen({
   footer,
   scroll = true,
   refreshControl,
-  edges = ['top', 'left', 'right'],
+  edges = ['left', 'right'],
 }: PropsWithChildren<{
   header?: ReactNode;
   footer?: ReactNode;

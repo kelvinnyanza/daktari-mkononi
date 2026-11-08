@@ -28,6 +28,11 @@ export const sw = {
   'emergency.line': 'Kama ni dharura, piga 112 au 115 sasa hivi.',
   'emergency.call112': 'Piga 112',
   'emergency.call115': 'Piga 115 — gari la wagonjwa',
+  'emergency.call115.short': 'Piga 115',
+  'emergency.call112.a11y': 'Piga 112 — huduma za dharura',
+  'emergency.short': 'Dharura?',
+  'a11y.showPassword': 'Onyesha nenosiri',
+  'a11y.hidePassword': 'Ficha nenosiri',
 
   // Brand + shared UI chrome (design system)
   'brand.tagline': 'Daktari wako, mkononi mwako',
@@ -315,6 +320,11 @@ export const en: Record<TranslationKey, string> = {
   'emergency.line': 'If this is an emergency, call 112 or 115 now.',
   'emergency.call112': 'Call 112',
   'emergency.call115': 'Call 115 — ambulance',
+  'emergency.call115.short': 'Call 115',
+  'emergency.call112.a11y': 'Call 112 — emergency services',
+  'emergency.short': 'Emergency?',
+  'a11y.showPassword': 'Show password',
+  'a11y.hidePassword': 'Hide password',
 
   // Brand + shared UI chrome (design system)
   'brand.tagline': 'Your doctor, in your hand',

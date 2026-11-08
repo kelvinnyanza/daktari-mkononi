@@ -1,7 +1,7 @@
 import { resetPasswordSchema } from '@daktari/schemas';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Body, Button, Screen, TextField, Title } from '../../src/components/ui';
+import { Banner, Button, Header, Input, PasswordInput, Screen, Stack } from '../../src/ui';
 import { useT } from '../../src/i18n';
 import { errorMessage } from '../../src/lib/errors';
 import { validateForm, type FieldErrors } from '../../src/lib/form';
@@ -41,25 +41,30 @@ export default function ResetPassword(): React.JSX.Element {
   };
 
   return (
-    <Screen>
-      <Title>{t('auth.reset.title')}</Title>
-      <TextField
-        label={t('auth.reset.code')}
-        value={code}
-        onChangeText={setCode}
-        keyboardType="number-pad"
-        maxLength={6}
-        error={fieldErrors.code}
-      />
-      <TextField
-        label={t('auth.reset.newPassword')}
-        value={newPassword}
-        onChangeText={setNewPassword}
-        secureTextEntry
-        error={fieldErrors.newPassword}
-      />
-      {formError !== null ? <Body>{formError}</Body> : null}
-      <Button label={t('auth.reset.submit')} onPress={() => void submit()} disabled={busy} />
+    <Screen header={<Header title={t('auth.reset.title')} onBack={() => router.back()} />}>
+      <Stack gap={4}>
+        <Input
+          label={t('auth.reset.code')}
+          leadingIcon="hash"
+          value={code}
+          onChangeText={setCode}
+          keyboardType="number-pad"
+          maxLength={6}
+          autoComplete="sms-otp"
+          textContentType="oneTimeCode"
+          error={fieldErrors.code}
+        />
+        <PasswordInput
+          label={t('auth.reset.newPassword')}
+          leadingIcon="lock"
+          value={newPassword}
+          onChangeText={setNewPassword}
+          autoComplete="new-password"
+          error={fieldErrors.newPassword}
+        />
+        {formError !== null ? <Banner tone="danger" message={formError} /> : null}
+        <Button label={t('auth.reset.submit')} icon="check" onPress={() => void submit()} loading={busy} />
+      </Stack>
     </Screen>
   );
 }

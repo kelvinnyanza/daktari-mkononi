@@ -49,7 +49,7 @@ export function Logo({
           allowFontScaling={false /* logotype is artwork; surrounding copy scales */}
           style={{ fontFamily: fontFamily.bold, fontSize: spec.text, lineHeight: spec.line, color: colors.text }}
         >
-          Daktari <Text allowFontScaling={false} style={{ fontFamily: fontFamily.bold, color: colors.primary }}>Mkononi</Text>
+          Daktari <Text allowFontScaling={false} style={{ fontFamily: fontFamily.bold, fontSize: spec.text, lineHeight: spec.line, color: colors.primary }}>Mkononi</Text>
         </Text>
         {tagline ? (
           <Text tone="secondary" align={stacked ? 'center' : 'left'}>

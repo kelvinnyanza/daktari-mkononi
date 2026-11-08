@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Body, Button, LinkButton, Screen, TextField, Title } from '../../src/components/ui';
+import { Banner, Button, Header, Input, Screen, Stack, Text } from '../../src/ui';
 import { useT } from '../../src/i18n';
 import { errorMessage } from '../../src/lib/errors';
 import { authApi } from '../../src/services/endpoints';
@@ -62,25 +62,32 @@ export default function VerifyOtp(): React.JSX.Element {
   };
 
   return (
-    <Screen>
-      <Title>{t('auth.otp.title')}</Title>
-      <Body muted>{t('auth.otp.instruction')}</Body>
-      <TextField
-        label={t('auth.reset.code')}
-        value={code}
-        onChangeText={setCode}
-        keyboardType="number-pad"
-        maxLength={6}
-        error={undefined}
-      />
-      {notice !== null ? <Body muted>{notice}</Body> : null}
-      {formError !== null ? <Body>{formError}</Body> : null}
-      <Button label={t('auth.otp.submit')} onPress={() => void submit()} disabled={busy} />
-      {cooldown > 0 ? (
-        <Body muted>{t('auth.otp.resendWait', { seconds: cooldown })}</Body>
-      ) : (
-        <LinkButton label={t('auth.otp.resend')} onPress={() => void resend()} />
-      )}
+    <Screen header={<Header title={t('auth.otp.title')} onBack={() => router.back()} />}>
+      <Stack gap={4}>
+        <Text tone="secondary">{t('auth.otp.instruction')}</Text>
+        {params.phone !== undefined && params.phone !== '' ? <Text variant="bodyStrong">{params.phone}</Text> : null}
+        <Input
+          label={t('auth.reset.code')}
+          leadingIcon="hash"
+          value={code}
+          onChangeText={setCode}
+          keyboardType="number-pad"
+          maxLength={6}
+          autoComplete="sms-otp"
+          textContentType="oneTimeCode"
+          placeholder="123456"
+        />
+        {notice !== null ? <Banner tone="success" message={notice} /> : null}
+        {formError !== null ? <Banner tone="danger" message={formError} /> : null}
+        <Button label={t('auth.otp.submit')} icon="check" onPress={() => void submit()} loading={busy} />
+        {cooldown > 0 ? (
+          <Text variant="caption" tone="secondary" align="center">
+            {t('auth.otp.resendWait', { seconds: cooldown })}
+          </Text>
+        ) : (
+          <Button variant="ghost" icon="refresh-cw" label={t('auth.otp.resend')} onPress={() => void resend()} />
+        )}
+      </Stack>
     </Screen>
   );
 }
