@@ -1,0 +1,15 @@
+<!--
+  Daktari Mkononi logo mark (original). Source of truth for every raster
+  (in-app mark, app icon, splash) — regenerate with `pnpm brand:assets`.
+  A white phone held in a mint, cupped hand, with a teal health cross on
+  its screen: "a doctor in your hand" (daktari mkononi).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <rect width="120" height="120" rx="32" fill="#0F7366"/>
+  <rect x="40" y="16" width="40" height="76" rx="11" fill="#FFFFFF"/>
+  <rect x="53" y="22" width="14" height="3.5" rx="1.75" fill="#A9DED4"/>
+  <rect x="55" y="36" width="10" height="30" rx="3" fill="#0F7366"/>
+  <rect x="45" y="46" width="30" height="10" rx="3" fill="#0F7366"/>
+  <path d="M24 56 C 25 82, 40 95, 60 95 C 77 95, 91 88, 99 72" fill="none" stroke="#0F7366" stroke-width="17" stroke-linecap="round"/>
+  <path d="M24 56 C 25 82, 40 95, 60 95 C 77 95, 91 88, 99 72" fill="none" stroke="#8FD9C6" stroke-width="9" stroke-linecap="round"/>
+</svg>

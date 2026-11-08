@@ -26,6 +26,17 @@ export const sw = {
   // Emergency (server-canonical: 112 universal, 115 ambulance — never others)
   'emergency.banner': 'Dharura? Piga 112 au 115 sasa hivi',
   'emergency.line': 'Kama ni dharura, piga 112 au 115 sasa hivi.',
+  'emergency.call112': 'Piga 112',
+  'emergency.call115': 'Piga 115 — gari la wagonjwa',
+
+  // Brand + shared UI chrome (design system)
+  'brand.tagline': 'Daktari wako, mkononi mwako',
+  'a11y.back': 'Rudi nyuma',
+  'a11y.close': 'Funga',
+  'a11y.loading': 'Inapakia, tafadhali subiri',
+  'ui.error.title': 'Kuna tatizo',
+  'ui.offline.title': 'Hakuna mtandao',
+  'ui.offline.body': 'Angalia data au Wi-Fi yako kisha ujaribu tena. Taarifa ulizokwisha kuona bado zipo.',
 
   // Auth
   'auth.login.title': 'Ingia',
@@ -302,6 +313,17 @@ export const en: Record<TranslationKey, string> = {
 
   'emergency.banner': 'Emergency? Call 112 or 115 now',
   'emergency.line': 'If this is an emergency, call 112 or 115 now.',
+  'emergency.call112': 'Call 112',
+  'emergency.call115': 'Call 115 — ambulance',
+
+  // Brand + shared UI chrome (design system)
+  'brand.tagline': 'Your doctor, in your hand',
+  'a11y.back': 'Go back',
+  'a11y.close': 'Close',
+  'a11y.loading': 'Loading, please wait',
+  'ui.error.title': 'Something went wrong',
+  'ui.offline.title': 'No internet connection',
+  'ui.offline.body': 'Check your data or Wi-Fi and try again. Information you have already seen is still available.',
 
   'auth.login.title': 'Sign in',
   'auth.login.phone': 'Phone number',

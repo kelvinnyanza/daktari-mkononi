@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useFonts } from 'expo-font';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
@@ -6,8 +7,13 @@ import { MisconfiguredScreen } from '../src/components/misconfigured-screen';
 import { onSessionExpired } from '../src/services/api';
 import { API_CONFIG } from '../src/services/config';
 import { useAuthStore } from '../src/stores/auth';
+import { fontAssets } from '../src/theme/fonts';
 
-export default function RootLayout(): React.JSX.Element {
+export default function RootLayout(): React.JSX.Element | null {
+  // Brand font (bundled assets, loaded from disk — no network). Hold the first
+  // frame until loaded (tens of ms); on failure render anyway with the system font.
+  const [fontsLoaded, fontError] = useFonts(fontAssets);
+  if (!fontsLoaded && fontError === null) return null;
   // Missing/invalid EXPO_PUBLIC_API_URL: render no route at all, so no screen
   // can fire requests at an empty base URL.
   if (!API_CONFIG.ok) return <MisconfiguredScreen />;
