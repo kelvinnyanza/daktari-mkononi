@@ -12,6 +12,7 @@ export { ChipGroup } from './Chip';
 export { Header } from './Header';
 export { Icon, type IconName } from './Icon';
 export { IconButton } from './IconButton';
+export { IconTile } from './IconTile';
 export { Input, PasswordInput } from './Input';
 export { ListItem } from './ListItem';
 export { Logo, LogoMark } from './Logo';

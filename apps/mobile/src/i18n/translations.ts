@@ -105,6 +105,9 @@ export const sw = {
   'home.greeting.evening': 'Habari za jioni',
   'home.startScreening': 'Anza Uchunguzi',
   'home.upcoming.title': 'Miadi ijayo',
+  'home.ask': 'Unajisikiaje leo?',
+  'home.screening.body': 'Eleza dalili zako — msaidizi atakuuliza maswali machache na kukuelekeza kwa daktari anayefaa.',
+  'home.seeAll': 'Ona zote',
   'home.upcoming.none': 'Huna miadi iliyothibitishwa kwa sasa',
   'screening.placeholder.title': 'Uchunguzi wa awali',
   'screening.placeholder.body':
@@ -393,6 +396,9 @@ export const en: Record<TranslationKey, string> = {
   'home.greeting.evening': 'Good evening',
   'home.startScreening': 'Start Screening',
   'home.upcoming.title': 'Upcoming appointment',
+  'home.ask': 'How are you feeling today?',
+  'home.screening.body': 'Describe your symptoms — the assistant asks a few questions and points you to the right doctor.',
+  'home.seeAll': 'See all',
   'home.upcoming.none': 'No confirmed appointments right now',
   'screening.placeholder.title': 'Symptom screening',
   'screening.placeholder.body':
