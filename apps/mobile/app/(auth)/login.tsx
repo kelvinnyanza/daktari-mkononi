@@ -8,6 +8,7 @@ import { validateForm, type FieldErrors } from '../../src/lib/form';
 import { ApiError, adoptTokenPair } from '../../src/services/api';
 import { authApi } from '../../src/services/endpoints';
 import { useAuthStore, type Role } from '../../src/stores/auth';
+import { DevStylePreviewEntry } from '../../src/components/dev-style-preview-entry';
 
 export default function Login(): React.JSX.Element {
   const t = useT();
@@ -76,6 +77,7 @@ export default function Login(): React.JSX.Element {
       <Button label={t('auth.login.submit')} onPress={() => void submit()} disabled={busy} />
       <LinkButton label={t('auth.login.noAccount')} onPress={() => router.push('/(auth)/register')} />
       <LinkButton label={t('auth.login.forgot')} onPress={() => router.push('/(auth)/forgot-password')} />
+      <DevStylePreviewEntry />
     </Screen>
   );
 }

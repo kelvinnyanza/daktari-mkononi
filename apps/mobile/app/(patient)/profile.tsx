@@ -17,6 +17,7 @@ import { errorMessage } from '../../src/lib/errors';
 import { clearTokens } from '../../src/services/api';
 import { patientApi } from '../../src/services/endpoints';
 import { useAuthStore } from '../../src/stores/auth';
+import { DevStylePreviewEntry } from '../../src/components/dev-style-preview-entry';
 
 /** The 31-region enum straight from @daktari/schemas — one source of truth. */
 const REGION_OPTIONS = tzRegionSchema.options.map((region) => ({
@@ -165,6 +166,7 @@ export default function Profile(): React.JSX.Element {
           });
         }}
       />
+      <DevStylePreviewEntry />
     </Screen>
   );
 }
