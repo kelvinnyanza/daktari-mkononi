@@ -22,11 +22,24 @@ config.resolver.unstable_enableSymlinks = true;
 // "Invalid hook call" (seen with @daily-co/react-native-daily-js 0.89). The
 // real fix is packageExtensions in pnpm-workspace.yaml; this pin makes any
 // future offender harmless by resolving react/* from this app, whoever asks.
-const PINNED = /^react(\/.*)?$/;
+// react-dom too (web target only uses it): it must match this app's React.
+const PINNED = /^react(-dom)?(\/.*)?$/;
+
+// WEB ONLY (`npx expo start --web` — layout preview in a browser): native-only
+// modules resolve to stand-ins in src/web-stubs. Android/iOS never take this
+// branch, so native behaviour is unchanged.
+const WEB_STUBS = {
+  'expo-secure-store': path.join(projectRoot, 'src/web-stubs/expo-secure-store.ts'),
+  '@daily-co/react-native-daily-js': path.join(projectRoot, 'src/web-stubs/native-video.ts'),
+  '@daily-co/react-native-webrtc': path.join(projectRoot, 'src/web-stubs/native-video.ts'),
+};
 const appOrigin = path.join(projectRoot, 'package.json');
 const defaultResolve = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const resolve = defaultResolve ?? context.resolveRequest;
+  if (platform === 'web' && Object.prototype.hasOwnProperty.call(WEB_STUBS, moduleName)) {
+    return { type: 'sourceFile', filePath: WEB_STUBS[moduleName] };
+  }
   if (PINNED.test(moduleName)) {
     return resolve({ ...context, originModulePath: appOrigin }, moduleName, platform);
   }
