@@ -168,7 +168,6 @@ the dark pairings to `theme.test.ts`. Emergency values stay the same.
 
 ## Migration note
 
-The legacy `src/theme/tokens.ts` `colors`/`typography` and
-`src/components/ui.tsx` still drive the existing screens until the UI Phase 1
-restyle (step 2) replaces them. After that they are deleted; only
-`contrastRatio` remains.
+UI Phase 1 step 2 moved every patient screen onto `src/ui`; the legacy
+`src/components/ui.tsx` kit and the old `colors`/`typography` tokens are gone.
+`src/theme/tokens.ts` keeps only `contrastRatio`.
