@@ -19,7 +19,7 @@ export { Logo, LogoMark } from './Logo';
 export { Screen, Section, Stack, useResponsive } from './Screen';
 export { Skeleton, SkeletonCard, SkeletonGroup, SkeletonListItem } from './Skeleton';
 export { EmergencyShell } from './EmergencyShell';
-export { EmptyState, ErrorState } from './States';
+export { EmptyState, ErrorState, LoadingState } from './States';
 export {
   APPOINTMENT_STATUS_STYLE,
   AppointmentStatusPill,

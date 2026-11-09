@@ -5,11 +5,11 @@
  * Never statically imports Daily, so jest/typecheck never touch native code.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
-import { Body, Button, LoadingState } from '../../components/ui';
+import { Linking, StyleSheet, View } from 'react-native';
 import { useT } from '../../i18n';
 import { loadDaily, type DailyMediaViewProps, type LoadedDaily, type VideoCall } from '../../services/video/daily-boundary';
-import { radius, spacing, typography } from '../../theme/tokens';
+import { radius, space } from '../../theme/theme';
+import { Button, EmptyState, LoadingState } from '../../ui';
 import { participantTracks, startCallSession, type CallParticipant } from './call-session';
 import type { JoinFailure } from './video-error';
 
@@ -82,30 +82,36 @@ export function VideoCallView({
   if (error !== null && error !== 'load' && error.kind === 'permission') {
     return (
       <View style={styles.stateBox}>
-        <Body>{t('consult.call.permissionDenied')}</Body>
-        <Button label={t('consult.call.openSettings')} onPress={() => void Linking.openSettings()} />
+        <EmptyState icon="video-off" title={t('consult.call.permissionDenied')} />
+        <Button icon="settings" label={t('consult.call.openSettings')} onPress={() => void Linking.openSettings()} />
       </View>
     );
   }
   if (error !== null && error !== 'load') {
     return (
       <View style={styles.stateBox}>
-        <Body>
-          {error.detail === null
-            ? t('consult.call.joinFailed')
-            : `${t('consult.call.joinFailed')} (${error.detail})`}
-        </Body>
+        <EmptyState
+          icon="alert-circle"
+          title={t('consult.call.joinFailed')}
+          {...(error.detail !== null ? { message: error.detail } : {})}
+        />
       </View>
     );
   }
   if (error === 'load') {
     return (
       <View style={styles.stateBox}>
-        <Body>{t('consult.call.needDevBuild')}</Body>
+        <EmptyState icon="video-off" title={t('consult.call.needDevBuild')} />
       </View>
     );
   }
-  if (daily === null) return <LoadingState />;
+  if (daily === null) {
+    return (
+      <View style={styles.stage}>
+        <LoadingState label={t('consult.call.connecting')} onDark />
+      </View>
+    );
+  }
 
   const MediaView = daily.MediaView;
   const remoteTracks = participantTracks(remote);
@@ -124,7 +130,11 @@ export function VideoCallView({
 
   return (
     <View style={styles.stage}>
-      {remote !== null ? <MediaView {...remoteProps} /> : <Text style={styles.waiting}>{t('consult.call.connecting')}</Text>}
+      {remote !== null ? (
+        <MediaView {...remoteProps} />
+      ) : (
+        <LoadingState label={t('consult.call.connecting')} onDark />
+      )}
       {videoEnabled && local !== null ? <MediaView {...localProps} /> : null}
     </View>
   );
@@ -135,13 +145,14 @@ const styles = StyleSheet.create({
   remote: { flex: 1 },
   pip: {
     position: 'absolute',
-    top: spacing.md,
-    right: spacing.md,
+    top: space[4],
+    right: space[4],
     width: 96,
     height: 128,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
     overflow: 'hidden',
   },
-  waiting: { ...typography.body, color: '#FFFFFF', textAlign: 'center', marginTop: spacing.xl },
-  stateBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.lg },
+  stateBox: { flex: 1, justifyContent: 'center', gap: space[4], padding: space[6] },
 });

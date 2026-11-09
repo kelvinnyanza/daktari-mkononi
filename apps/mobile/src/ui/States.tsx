@@ -2,7 +2,7 @@
  * Full-area states: Empty, Error (incl. offline "Hakuna mtandao"). Each has a
  * soft circular "illustration" (icon on a tint), a short line, ONE action.
  */
-import { View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { useT } from '../i18n';
 import { createStyles, space, useTheme } from '../theme/theme';
 import { Button } from './Button';
@@ -101,7 +101,26 @@ export function ErrorState({
   );
 }
 
+/**
+ * Full-area spinner + 'Inapakia…' for places a skeleton can't mirror (call
+ * connecting, first frame of a screen). onDark: white spinner for the black video stage.
+ */
+export function LoadingState({ label, onDark = false }: { label?: string; onDark?: boolean }): React.JSX.Element {
+  const styles = useStyles();
+  const t = useT();
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.box, styles.fill]} accessibilityRole="progressbar" accessibilityLabel={label ?? t('a11y.loading')}>
+      <ActivityIndicator size="large" color={onDark ? colors.textOnPrimary : colors.primary} />
+      <Text tone={onDark ? 'onPrimary' : 'secondary'} align="center">
+        {label ?? t('common.loading')}
+      </Text>
+    </View>
+  );
+}
+
 const useStyles = createStyles(() => ({
+  fill: { flex: 1, justifyContent: 'center' },
   box: {
     alignItems: 'center',
     gap: space[4],

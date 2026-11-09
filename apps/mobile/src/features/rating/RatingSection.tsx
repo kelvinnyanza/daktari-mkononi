@@ -6,12 +6,12 @@
  */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Body, Button, TextField } from '../../components/ui';
+import { Pressable, View } from 'react-native';
 import { useT } from '../../i18n';
 import { errorMessage } from '../../lib/errors';
 import { ratingApi } from '../../services/endpoints';
-import { colors, radius, spacing, typography } from '../../theme/tokens';
+import { createStyles, layout, radius, space, useTheme } from '../../theme/theme';
+import { Banner, Button, Card, Icon, Input, Text } from '../../ui';
 import { isAlreadyRated } from './post-call';
 
 export function RatingSection({
@@ -61,41 +61,57 @@ export function RatingSection({
   // Already rated → read-only display.
   if (status.data.rating !== null) {
     return (
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>{t('rating.yours')}</Text>
+      <Card>
+        <Text variant="heading" accessibilityRole="header">
+          {t('rating.yours')}
+        </Text>
         <Stars value={status.data.rating.rating} onChange={null} />
-        {status.data.rating.comment !== null ? <Body muted>{status.data.rating.comment}</Body> : null}
-      </View>
+        {status.data.rating.comment !== null ? <Text tone="secondary">{status.data.rating.comment}</Text> : null}
+      </Card>
     );
   }
   if (status.data.status !== 'COMPLETED') return null;
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>{t('rating.title')}</Text>
-      <Body muted>{t('rating.overall')}</Body>
+    <Card>
+      <Text variant="heading" accessibilityRole="header">
+        {t('rating.title')}
+      </Text>
+      <Text variant="label">{t('rating.overall')}</Text>
       <Stars value={overall} onChange={setOverall} />
-      <Body muted>{t('rating.communication')}</Body>
+      <Text variant="label" tone="secondary">
+        {t('rating.communication')}
+      </Text>
       <Stars value={communication} onChange={setCommunication} />
-      <Body muted>{t('rating.professionalism')}</Body>
+      <Text variant="label" tone="secondary">
+        {t('rating.professionalism')}
+      </Text>
       <Stars value={professionalism} onChange={setProfessionalism} />
-      <Body muted>{t('rating.timeliness')}</Body>
+      <Text variant="label" tone="secondary">
+        {t('rating.timeliness')}
+      </Text>
       <Stars value={timeliness} onChange={setTimeliness} />
-      <TextField label={t('rating.comment')} value={comment} onChangeText={setComment} multiline />
-      {submit.isError && !isAlreadyRated(submit.error) ? <Body>{errorMessage(submit.error)}</Body> : null}
+      <Input label={t('rating.comment')} value={comment} onChangeText={setComment} multiline />
+      {submit.isError && !isAlreadyRated(submit.error) ? <Banner tone="danger" message={errorMessage(submit.error)} /> : null}
       {submit.isSuccess ? (
-        <Body>{t('rating.thanks')}</Body>
+        <Banner tone="success" message={t('rating.thanks')} />
       ) : (
         <Button
+          icon="send"
           label={t('rating.submit')}
           onPress={() => submit.mutate()}
-          disabled={overall === 0 || submit.isPending}
+          loading={submit.isPending}
+          disabled={overall === 0}
         />
       )}
-    </View>
+    </Card>
   );
 }
 
+/**
+ * 1–5 stars, 48dp each. Filled = teal (non-text contrast ≥ 3:1 — the old
+ * amber failed it), empty = outline. Read-only when onChange is null.
+ */
 export function Stars({
   value,
   onChange,
@@ -103,32 +119,57 @@ export function Stars({
   value: number;
   onChange: ((value: number) => void) | null;
 }): React.JSX.Element {
+  const t = useT();
+  const styles = useStyles();
+  const { colors } = useTheme();
+  if (onChange === null) {
+    return (
+      <View style={styles.stars} accessible accessibilityLabel={t('rating.starLabel', { n: value })}>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <StarGlyph key={star} filled={star <= value} color={star <= value ? colors.primary : colors.borderStrong} />
+        ))}
+      </View>
+    );
+  }
   return (
-    <View style={styles.stars}>
+    <View style={styles.stars} accessibilityRole="radiogroup">
       {[1, 2, 3, 4, 5].map((star) => (
         <Pressable
           key={star}
-          accessibilityRole="button"
-          accessibilityLabel={`${String(star)} ★`}
-          disabled={onChange === null}
-          onPress={() => onChange?.(star)}
+          accessibilityRole="radio"
+          accessibilityLabel={t('rating.starLabel', { n: star })}
+          accessibilityState={{ checked: star === value }}
+          onPress={() => onChange(star)}
+          style={({ pressed }) => [styles.starButton, pressed && styles.starPressed]}
         >
-          <Text style={[styles.star, star <= value && styles.starActive]}>★</Text>
+          <StarGlyph filled={star <= value} color={star <= value ? colors.primary : colors.borderStrong} />
         </Pressable>
       ))}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.sm,
+/** Feather's star is outline-only; filled = a solid ★ in the same footprint. */
+function StarGlyph({ filled, color }: { filled: boolean; color: string }): React.JSX.Element {
+  const styles = useStyles();
+  return filled ? (
+    <Text allowFontScaling={false} style={[styles.solidStar, { color }]}>
+      ★
+    </Text>
+  ) : (
+    <Icon name="star" size={30} color={color} />
+  );
+}
+
+const useStyles = createStyles((c) => ({
+  stars: { flexDirection: 'row', flexWrap: 'wrap', gap: space[1] },
+  starButton: {
+    width: layout.touchTarget,
+    height: layout.touchTarget,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  cardTitle: { ...typography.subtitle, color: colors.text },
-  stars: { flexDirection: 'row', gap: spacing.sm },
-  star: { fontSize: 32, color: colors.border },
-  starActive: { color: '#E8A13A' },
-});
+  starPressed: { backgroundColor: c.primarySoft },
+  solidStar: { fontSize: 34, lineHeight: 38 },
+}));

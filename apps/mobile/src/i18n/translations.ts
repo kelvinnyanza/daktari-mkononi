@@ -282,6 +282,7 @@ export const sw = {
   'consult.waiting.status.reconnecting': 'Inajaribu kuunganisha tena…',
   'consult.waiting.status.failed': 'Imeshindwa kuunganisha. Angalia mtandao.',
   'consult.waiting.hint': 'Daktari ataanza mashauriano hivi karibuni. Usiondoke.',
+  'consult.waiting.tip': 'Kaa mahali tulivu penye mtandao mzuri, na hakikisha simu yako ina chaji.',
   'consult.call.connecting': 'Inaunganisha kwenye simu…',
   'consult.call.mute': 'Zima sauti',
   'consult.call.unmute': 'Washa sauti',
@@ -320,6 +321,7 @@ export const sw = {
   'rating.yours': 'Tathmini yako',
   'rating.skip': 'Ruka',
   'rating.later': 'Unaweza kutoa tathmini baadaye kwenye maelezo ya miadi.',
+  'rating.starLabel': 'Nyota {n} kati ya 5',
 } as const;
 
 export type TranslationKey = keyof typeof sw;
@@ -575,6 +577,7 @@ export const en: Record<TranslationKey, string> = {
   'consult.waiting.status.reconnecting': 'Reconnecting…',
   'consult.waiting.status.failed': 'Could not connect. Check your network.',
   'consult.waiting.hint': 'The doctor will start the consultation shortly. Please stay here.',
+  'consult.waiting.tip': 'Sit somewhere quiet with a good signal, and make sure your phone is charged.',
   'consult.call.connecting': 'Connecting to the call…',
   'consult.call.mute': 'Mute',
   'consult.call.unmute': 'Unmute',
@@ -611,6 +614,7 @@ export const en: Record<TranslationKey, string> = {
   'rating.yours': 'Your rating',
   'rating.skip': 'Skip',
   'rating.later': 'You can rate later from Appointment details.',
+  'rating.starLabel': '{n} of 5 stars',
   'doctor.portal.title': 'Doctors use the web portal',
   'doctor.portal.body':
     'Register, upload your TMC licence, set your schedule and run consultations on the Daktari Mkononi web portal from a computer. Sign in with this same phone number and password.',

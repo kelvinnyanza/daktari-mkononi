@@ -8,16 +8,17 @@
  */
 import { useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { Body, Button, Title } from '../../../../src/components/ui';
 import { waitingRoomView } from '../../../../src/features/consultation/waiting-room';
 import { useT } from '../../../../src/i18n';
 import { ratingApi } from '../../../../src/services/endpoints';
-import { colors, radius, spacing, typography } from '../../../../src/theme/tokens';
+import { space, useTheme } from '../../../../src/theme/theme';
+import { Banner, Button, Card, EmptyState, Header, Screen } from '../../../../src/ui';
 
 export default function WaitingRoom(): React.JSX.Element {
   const t = useT();
+  const { colors } = useTheme();
   const { appointmentId } = useLocalSearchParams<{ appointmentId: string }>();
 
   // statusForAppointment returns { consultationId, status } once it exists
@@ -47,26 +48,22 @@ export default function WaitingRoom(): React.JSX.Element {
   );
 
   return (
-    <View style={styles.container}>
-      <Title>{t('consult.waiting.title')}</Title>
-      <View style={styles.card}>
-        <Text style={styles.status}>{t(view.statusKey)}</Text>
-        {target === null ? <Body muted>{t('consult.waiting.hint')}</Body> : null}
-      </View>
-      {target !== null ? <Button label={t('consult.join')} onPress={() => enter(target)} /> : null}
-      <Button label={t('common.back')} onPress={() => router.back()} />
-    </View>
+    <Screen header={<Header title={t('consult.waiting.title')} onBack={() => router.back()} />}>
+      <Card>
+        <EmptyState
+          icon={target !== null ? 'video' : 'clock'}
+          title={t(view.statusKey)}
+          {...(target === null ? { message: t('consult.waiting.hint') } : {})}
+        />
+        {target === null ? (
+          <View style={{ alignItems: 'center', paddingBottom: space[4] }}>
+            <ActivityIndicator color={colors.primary} accessibilityLabel={t('consult.waiting.status.connecting')} />
+          </View>
+        ) : null}
+      </Card>
+      {target === null ? <Banner tone="info" icon="wifi" message={t('consult.waiting.tip')} /> : null}
+      {target !== null ? <Button icon="video" label={t('consult.join')} onPress={() => enter(target)} /> : null}
+      <Button variant="ghost" icon="arrow-left" label={t('common.back')} onPress={() => router.back()} />
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, padding: spacing.lg, gap: spacing.lg },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.lg,
-    gap: spacing.sm,
-    alignItems: 'center',
-  },
-  status: { ...typography.subtitle, color: colors.text },
-});

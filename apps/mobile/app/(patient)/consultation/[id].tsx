@@ -7,17 +7,8 @@
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  FlatList,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { FlatList, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Body, Button, LoadingState } from '../../../src/components/ui';
 import { chatReducer, initialChatState, type ChatEntry } from '../../../src/features/consultation/chat-reducer';
 import { waitingRoomTransition } from '../../../src/features/consultation/waiting-room';
 import { VideoCallView, type VideoCallHandle } from '../../../src/features/consultation/VideoCallView';
@@ -33,7 +24,18 @@ import {
   type MinimalSocket,
   type SocketState,
 } from '../../../src/services/ws';
-import { colors, radius, spacing, typography } from '../../../src/theme/tokens';
+import { createStyles, layout, radius, space, type, useTheme } from '../../../src/theme/theme';
+import {
+  Banner,
+  Button,
+  EmptyState,
+  Icon,
+  IconButton,
+  LoadingState,
+  Text,
+  type IconName,
+} from '../../../src/ui';
+import { noWebOutline } from '../../../src/ui/web-outline';
 
 const MAX_CHAT_LEN = 2000;
 
@@ -41,6 +43,7 @@ type Phase = 'connecting' | 'in-call' | 'completed' | 'interrupted';
 
 export default function ConsultationScreen(): React.JSX.Element {
   const t = useT();
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const consultationId = id ?? '';
 
@@ -204,18 +207,23 @@ export default function ConsultationScreen(): React.JSX.Element {
       ) : fullScreenChat ? (
         <ChatPanel entries={chat.entries} onSend={sendChat} onRetry={sendChat} fullScreen />
       ) : (
-        <LoadingState />
+        <View style={styles.stage}>
+          <LoadingState label={t('consult.call.connecting')} onDark />
+        </View>
       )}
 
-      {poorConnection ? (
-        <View style={styles.poor} accessibilityRole="alert">
-          <Text style={styles.poorText}>{t('consult.call.poorConnection')}</Text>
+      {poorConnection || socketState === 'failed' ? (
+        <View style={styles.alerts}>
+          {poorConnection ? <Banner tone="warning" icon="wifi" message={t('consult.call.poorConnection')} /> : null}
+          {socketState === 'failed' ? <Banner tone="danger" icon="wifi-off" message={t('consult.waiting.status.failed')} /> : null}
         </View>
       ) : null}
 
       {isVideo ? (
         <View style={styles.controls}>
           <ControlButton
+            icon={muted ? 'mic-off' : 'mic'}
+            active={muted}
             label={muted ? t('consult.call.unmute') : t('consult.call.mute')}
             onPress={() => {
               const next = !muted;
@@ -224,25 +232,26 @@ export default function ConsultationScreen(): React.JSX.Element {
             }}
           />
           <ControlButton
+            icon={cameraOff ? 'video-off' : 'video'}
+            active={cameraOff}
             label={cameraOff ? t('consult.call.cameraOn') : t('consult.call.cameraOff')}
             onPress={() => setCameraOff((v) => !v)}
           />
-          <ControlButton label={t('consult.call.flip')} onPress={() => controlsRef.current?.flip()} />
-          <ControlButton label={t('consult.call.chat')} onPress={() => setShowChat(true)} />
-          <ControlButton label={t('consult.call.end')} destructive onPress={() => router.back()} />
+          <ControlButton icon="refresh-cw" label={t('consult.call.flip')} onPress={() => controlsRef.current?.flip()} />
+          <ControlButton icon="message-square" label={t('consult.call.chat')} onPress={() => setShowChat(true)} />
+          <ControlButton icon="phone-off" label={t('consult.call.end')} destructive onPress={() => router.back()} />
         </View>
       ) : null}
 
       {isVideo && showChat ? (
         <View style={styles.drawer}>
+          <View style={styles.drawerHead}>
+            <Text variant="heading" accessibilityRole="header" style={styles.drawerTitle}>
+              {t('consult.chat.title')}
+            </Text>
+            <IconButton icon="x" accessibilityLabel={t('a11y.close')} onPress={() => setShowChat(false)} />
+          </View>
           <ChatPanel entries={chat.entries} onSend={sendChat} onRetry={sendChat} fullScreen={false} />
-          <Button label={t('common.back')} onPress={() => setShowChat(false)} />
-        </View>
-      ) : null}
-
-      {socketState === 'failed' ? (
-        <View style={styles.poor}>
-          <Text style={styles.poorText}>{t('consult.waiting.status.failed')}</Text>
         </View>
       ) : null}
       {isChatType ? null : null}
@@ -250,23 +259,48 @@ export default function ConsultationScreen(): React.JSX.Element {
   );
 }
 
+/** Round 56dp icon control with its label underneath (icons alone are not enough for everyone). */
 function ControlButton({
+  icon,
   label,
   onPress,
-  destructive,
+  destructive = false,
+  active = false,
 }: {
+  icon: IconName;
   label: string;
   onPress: () => void;
   destructive?: boolean;
+  /** Toggled-off state (muted / camera off) — inverted colours. */
+  active?: boolean;
 }): React.JSX.Element {
+  const styles = useStyles();
+  const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={[styles.control, destructive === true && styles.controlDanger]}
+      style={styles.control}
     >
-      <Text style={styles.controlLabel}>{label}</Text>
+      {({ pressed }) => (
+        <>
+          <View
+            style={[
+              styles.controlCircle,
+              active && styles.controlCircleActive,
+              destructive && styles.controlCircleDanger,
+              pressed && styles.controlCirclePressed,
+            ]}
+          >
+            <Icon name={icon} color={active ? colors.text : colors.textOnPrimary} />
+          </View>
+          <Text variant="caption" tone="onPrimary" align="center" style={styles.controlLabel}>
+            {label}
+          </Text>
+        </>
+      )}
     </Pressable>
   );
 }
@@ -283,6 +317,8 @@ function ChatPanel({
   fullScreen: boolean;
 }): React.JSX.Element {
   const t = useT();
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [draft, setDraft] = useState('');
   const listData = useMemo(() => [...entries], [entries]);
 
@@ -294,15 +330,32 @@ function ChatPanel({
         renderItem={({ item }) => (
           <Pressable
             disabled={item.status !== 'failed'}
+            accessibilityRole={item.status === 'failed' ? 'button' : undefined}
             onPress={() => item.status === 'failed' && onRetry(item.body)}
-            style={[styles.bubble, item.mine ? styles.bubbleMine : styles.bubbleTheirs]}
+            style={[
+              styles.bubble,
+              item.mine ? styles.bubbleMine : styles.bubbleTheirs,
+              item.status === 'failed' && styles.bubbleFailed,
+            ]}
           >
-            <Text style={item.mine ? styles.bubbleMineText : styles.bubbleText}>{item.body}</Text>
-            {item.status === 'pending' ? <Text style={styles.meta}>{t('consult.chat.pending')}</Text> : null}
-            {item.status === 'failed' ? <Text style={styles.metaFail}>{t('consult.chat.failed')}</Text> : null}
+            <Text tone={item.mine && item.status !== 'failed' ? 'onPrimary' : 'default'}>{item.body}</Text>
+            {item.status === 'pending' ? (
+              <Text variant="caption" tone="onPrimary" style={styles.meta}>
+                {t('consult.chat.pending')}
+              </Text>
+            ) : null}
+            {item.status === 'failed' ? (
+              <View style={styles.failRow}>
+                <Icon name="alert-circle" size={14} color={colors.dangerFg} />
+                <Text variant="caption" tone="danger" style={styles.failText}>
+                  {t('consult.chat.failed')}
+                </Text>
+              </View>
+            ) : null}
           </Pressable>
         )}
         contentContainerStyle={styles.chatContent}
+        keyboardShouldPersistTaps="handled"
       />
       <View style={styles.inputRow}>
         <TextInput
@@ -310,12 +363,15 @@ function ChatPanel({
           value={draft}
           onChangeText={(text) => setDraft(text.slice(0, MAX_CHAT_LEN))}
           placeholder={t('consult.chat.placeholder')}
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={colors.textSecondary}
           multiline
           accessibilityLabel={t('consult.chat.placeholder')}
         />
         <Button
           label={t('consult.chat.send')}
+          icon="send"
+          size="sm"
+          fullWidth={false}
           onPress={() => {
             onSend(draft);
             setDraft('');
@@ -339,6 +395,7 @@ function EndedState({
   usedUp: boolean;
 }): React.JSX.Element {
   const t = useT();
+  const styles = useStyles();
   const back = (): void =>
     appointmentId !== undefined
       ? router.replace({ pathname: '/(patient)/appointments/[id]', params: { id: appointmentId } })
@@ -346,12 +403,17 @@ function EndedState({
 
   if (interrupted) {
     return (
-      <View style={styles.endedBox}>
-        <Text style={styles.endedTitle}>{t('consult.ended.interrupted')}</Text>
-        <Body>{usedUp ? t('consult.ended.interrupted.usedUp') : t('consult.ended.interrupted.canRestart')}</Body>
-        {usedUp ? <Button label={t('consult.ended.support')} onPress={() => router.replace('/(patient)/home')} /> : null}
-        <Button label={t('common.back')} onPress={back} />
-      </View>
+      <ScrollView style={styles.container} contentContainerStyle={styles.endedScroll}>
+        <EmptyState
+          icon="alert-triangle"
+          title={t('consult.ended.interrupted')}
+          message={usedUp ? t('consult.ended.interrupted.usedUp') : t('consult.ended.interrupted.canRestart')}
+        />
+        {usedUp ? (
+          <Button icon="help-circle" label={t('consult.ended.support')} onPress={() => router.replace('/(patient)/home')} />
+        ) : null}
+        <Button variant={usedUp ? 'ghost' : 'primary'} icon="arrow-left" label={t('common.back')} onPress={back} />
+      </ScrollView>
     );
   }
   return <CompletedFlow consultationId={consultationId} appointmentId={appointmentId} onBack={back} />;
@@ -371,6 +433,7 @@ function CompletedFlow({
   onBack: () => void;
 }): React.JSX.Element {
   const t = useT();
+  const styles = useStyles();
   const [skipped, setSkipped] = useState(false);
   const [rated, setRated] = useState(false);
   const status = useQuery({
@@ -388,91 +451,119 @@ function CompletedFlow({
 
   if (step === 'rate' && appointmentId !== undefined) {
     return (
-      <ScrollView contentContainerStyle={styles.endedScroll}>
-        <Text style={styles.endedTitle}>{t('consult.ended.completed')}</Text>
+      <ScrollView style={styles.container} contentContainerStyle={styles.endedScroll}>
+        <EmptyState icon="check-circle" title={t('consult.ended.completed')} />
         <RatingSection appointmentId={appointmentId} onDone={() => setRated(true)} />
-        <Button label={t('rating.skip')} onPress={() => setSkipped(true)} />
+        <Button variant="ghost" label={t('rating.skip')} onPress={() => setSkipped(true)} />
       </ScrollView>
     );
   }
 
   return (
-    <View style={styles.endedBox}>
-      <Text style={styles.endedTitle}>{t('consult.ended.completed')}</Text>
-      {rated ? <Body>{t('rating.thanks')}</Body> : null}
-      {skipped ? <Body muted>{t('rating.later')}</Body> : null}
-      <Button label={t('consult.ended.viewRecord')} onPress={() => router.replace('/(patient)/records')} />
-      <Button label={t('common.back')} onPress={onBack} />
-    </View>
+    <ScrollView style={styles.container} contentContainerStyle={styles.endedScroll}>
+      <EmptyState
+        icon="check-circle"
+        title={t('consult.ended.completed')}
+        {...(rated ? { message: t('rating.thanks') } : skipped ? { message: t('rating.later') } : {})}
+      />
+      <Button icon="file-text" label={t('consult.ended.viewRecord')} onPress={() => router.replace('/(patient)/records')} />
+      <Button variant="ghost" icon="arrow-left" label={t('common.back')} onPress={onBack} />
+    </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+const useStyles = createStyles((c) => ({
+  container: { flex: 1, backgroundColor: c.background },
+  stage: { flex: 1, backgroundColor: '#000000' },
+  alerts: { position: 'absolute', top: space[3], left: space[3], right: space[3], gap: space[2] },
+  // Call controls sit on dark ink (the video stage is black): white icons/labels.
   controls: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    padding: spacing.md,
-    backgroundColor: '#000000',
+    alignItems: 'flex-start',
+    paddingVertical: space[3],
+    paddingHorizontal: space[2],
+    backgroundColor: c.text,
   },
-  control: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surface,
-    minWidth: 60,
+  control: { alignItems: 'center', gap: space[1], flex: 1, minHeight: layout.touchTarget },
+  controlCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.pill,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
   },
-  controlDanger: { backgroundColor: colors.danger },
-  controlLabel: { ...typography.caption, color: colors.text },
-  poor: { backgroundColor: colors.danger, padding: spacing.sm, alignItems: 'center' },
-  poorText: { ...typography.caption, color: '#FFFFFF', fontWeight: '700' },
+  controlCircleActive: { backgroundColor: c.surface },
+  controlCircleDanger: { backgroundColor: c.dangerFg },
+  controlCirclePressed: { opacity: 0.75 },
+  controlLabel: { maxWidth: 88 },
   drawer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    maxHeight: '60%',
-    backgroundColor: colors.background,
-    borderTopLeftRadius: radius.md,
-    borderTopRightRadius: radius.md,
-    padding: spacing.sm,
+    maxHeight: '65%',
+    backgroundColor: c.background,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingTop: space[2],
   },
+  drawerHead: { flexDirection: 'row', alignItems: 'center', paddingLeft: space[4], paddingRight: space[2] },
+  drawerTitle: { flex: 1 },
   chat: { flex: 1 },
-  chatFull: { backgroundColor: colors.background },
-  chatContent: { padding: spacing.md, gap: spacing.sm },
+  chatFull: { backgroundColor: c.background },
+  chatContent: { padding: space[4], gap: space[3], width: '100%', maxWidth: layout.maxContentWidth, alignSelf: 'center' },
   bubble: {
     maxWidth: '85%',
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.sm + 4,
-    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    paddingHorizontal: space[4],
+    paddingVertical: space[3],
+    gap: 2,
   },
-  bubbleMine: { alignSelf: 'flex-end', backgroundColor: colors.primary },
-  bubbleTheirs: { alignSelf: 'flex-start', backgroundColor: colors.surface },
-  bubbleText: { ...typography.body, color: colors.text },
-  bubbleMineText: { ...typography.body, color: colors.onPrimary },
-  meta: { ...typography.caption, color: colors.onPrimary, opacity: 0.8 },
-  metaFail: { ...typography.caption, color: '#FFE0E0', fontWeight: '700' },
+  bubbleMine: { alignSelf: 'flex-end', backgroundColor: c.primary, borderTopRightRadius: radius.sm },
+  bubbleTheirs: {
+    alignSelf: 'flex-start',
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.border,
+    borderTopLeftRadius: radius.sm,
+  },
+  bubbleFailed: { backgroundColor: c.dangerBg, borderWidth: 1, borderColor: c.dangerBorder },
+  meta: { opacity: 0.85 },
+  failRow: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
+  failText: { flexShrink: 1 },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: spacing.sm,
-    padding: spacing.sm,
+    gap: space[2],
+    paddingHorizontal: space[3],
+    paddingVertical: space[2],
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: c.border,
+    backgroundColor: c.surface,
   },
   input: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.sm + 4,
-    paddingVertical: spacing.sm,
-    maxHeight: 100,
-    ...typography.body,
-    color: colors.text,
+    borderWidth: 1.5,
+    borderColor: c.borderStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: space[3],
+    paddingVertical: space[3],
+    minHeight: layout.touchTarget,
+    maxHeight: 120,
+    ...type.body,
+    color: c.text,
+    backgroundColor: c.surface,
+    ...noWebOutline,
   },
-  endedBox: { flex: 1, justifyContent: 'center', padding: spacing.lg, gap: spacing.md },
-  endedTitle: { ...typography.title, color: colors.text, textAlign: 'center' },
-  endedScroll: { padding: spacing.lg, gap: spacing.md },
-});
+  endedScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: space[6],
+    gap: space[4],
+    width: '100%',
+    maxWidth: layout.maxContentWidth,
+    alignSelf: 'center',
+  },
+}));
