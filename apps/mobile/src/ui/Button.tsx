@@ -24,8 +24,9 @@ export interface ButtonProps {
 function foreground(variant: ButtonVariant, colors: ThemeColors): string {
   switch (variant) {
     case 'primary':
-    case 'danger':
       return colors.textOnPrimary;
+    case 'danger':
+      return colors.dangerFg;
     case 'secondary':
       return colors.onPrimarySoft;
     case 'ghost':
@@ -35,7 +36,8 @@ function foreground(variant: ButtonVariant, colors: ThemeColors): string {
 
 /**
  * One primary action per screen. `danger` is for destructive actions only
- * (cancel booking) — emergency calls use EmergencyCallCard, never a Button.
+ * (cancel booking) and is OUTLINED red: solid red is reserved for 112/115
+ * (EmergencyStrip / EmergencyCallCard), never a Button.
  */
 export function Button({
   label,
@@ -72,6 +74,7 @@ export function Button({
         styles[variant],
         pressed && styles[`${variant}Pressed`],
         disabled && (variant === 'ghost' ? styles.ghostDisabled : styles.disabled),
+        disabled && variant === 'danger' && styles.dangerDisabled,
         ring.focused && styles.focused,
         fullWidth ? styles.block : styles.inline,
       ]}
@@ -115,9 +118,10 @@ const useStyles = createStyles((c) => ({
   secondaryPressed: { backgroundColor: c.primarySoftPressed },
   ghost: { backgroundColor: 'transparent' },
   ghostPressed: { backgroundColor: c.primarySoft },
-  danger: { backgroundColor: c.dangerFg },
-  dangerPressed: { backgroundColor: c.dangerPressed },
+  danger: { backgroundColor: c.surface, borderColor: c.dangerFg, borderWidth: 1.5 },
+  dangerPressed: { backgroundColor: c.dangerBg },
   disabled: { backgroundColor: c.disabledFill },
   ghostDisabled: { backgroundColor: 'transparent' },
-  focused: { borderColor: c.focus },
+  dangerDisabled: { borderColor: c.border },
+  focused: { borderColor: c.focus, borderWidth: 2 },
 }));

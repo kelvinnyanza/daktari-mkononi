@@ -29,6 +29,7 @@ import {
   Banner,
   Button,
   Card,
+  ConfirmDialog,
   ErrorState,
   Header,
   Icon,
@@ -51,6 +52,7 @@ export default function AppointmentDetail(): React.JSX.Element {
   const [reason, setReason] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [focused, setFocused] = useState(true);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -94,7 +96,10 @@ export default function AppointmentDetail(): React.JSX.Element {
       await queryClient.invalidateQueries({ queryKey: ['appointments'] });
       router.back();
     },
-    onError: (error) => setActionError(errorMessage(error)),
+    onError: (error) => {
+      setConfirmCancel(false); // close the dialog so the error banner is visible
+      setActionError(errorMessage(error));
+    },
   });
 
   const retryPay = useMutation({
@@ -188,8 +193,18 @@ export default function AppointmentDetail(): React.JSX.Element {
                 variant="danger"
                 icon="x-circle"
                 label={t('appointments.detail.cancel')}
-                onPress={() => cancel.mutate()}
+                onPress={() => setConfirmCancel(true)}
                 loading={cancel.isPending}
+              />
+              <ConfirmDialog
+                visible={confirmCancel}
+                title={t('appointments.detail.cancelConfirm.title')}
+                message={t('appointments.detail.cancelConfirm.body')}
+                confirmLabel={t('appointments.detail.cancelConfirm.yes')}
+                cancelLabel={t('appointments.detail.cancelConfirm.no')}
+                onConfirm={() => cancel.mutate()}
+                onCancel={() => setConfirmCancel(false)}
+                busy={cancel.isPending}
               />
             </Card>
           ) : null}

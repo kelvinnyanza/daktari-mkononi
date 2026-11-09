@@ -294,7 +294,7 @@ function ControlButton({
               pressed && styles.controlCirclePressed,
             ]}
           >
-            <Icon name={icon} color={active ? colors.text : colors.textOnPrimary} />
+            <Icon name={icon} color={destructive ? colors.dangerFg : active ? colors.text : colors.textOnPrimary} />
           </View>
           <Text variant="caption" tone="onPrimary" align="center" style={styles.controlLabel}>
             {label}
@@ -495,7 +495,8 @@ const useStyles = createStyles((c) => ({
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
   controlCircleActive: { backgroundColor: c.surface },
-  controlCircleDanger: { backgroundColor: c.dangerFg },
+  // White with a red icon: solid red is reserved for 112/115.
+  controlCircleDanger: { backgroundColor: c.surface },
   controlCirclePressed: { opacity: 0.75 },
   controlLabel: { maxWidth: 88 },
   drawer: {

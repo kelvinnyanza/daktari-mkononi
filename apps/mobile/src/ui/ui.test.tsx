@@ -3,7 +3,8 @@
  * regress (press / disabled / loading, a11y labels and roles, emergency
  * colours and dial targets, Swahili status labels).
  */
-import { Linking, StyleSheet, TextInput } from 'react-native';
+import { Linking, Modal, StyleSheet, TextInput } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { useI18nStore } from '../i18n';
 import { lightColors } from '../theme/theme';
@@ -12,9 +13,12 @@ import {
   AppointmentStatusPill,
   Avatar,
   Banner,
+  BottomSheet,
   Button,
   ChipGroup,
+  ConfirmDialog,
   EmergencyCallCard,
+  EmergencyShell,
   EmergencyStrip,
   EmptyState,
   ErrorState,
@@ -22,6 +26,7 @@ import {
   IconButton,
   Input,
   PaymentStatusPill,
+  Text,
 } from './index';
 
 function render(element: React.ReactElement): ReactTestRenderer {
@@ -220,3 +225,86 @@ describe('Avatar', () => {
     expect(textOf(render(<Avatar name="Dkt. Amina Mushi" />))).toContain('AM');
   });
 });
+
+describe('Overlays never cover the emergency strip', () => {
+  it('a bottom sheet inside the shell renders below the strip; only the screen is hidden from TalkBack', () => {
+    const tree = render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <EmergencyShell>
+        <BottomSheet visible onClose={jest.fn()} title="Vichujio">
+          <RNTextProbe />
+        </BottomSheet>
+      </EmergencyShell>
+      </SafeAreaProvider>,
+    );
+    // No full-window RN Modal is used inside the shell.
+    expect(tree.root.findAll((n) => n.type === Modal)).toHaveLength(0);
+    // The strip's dial buttons are not inside any hidden subtree.
+    const dial = pressables(tree).filter((p) => String(p.props.accessibilityLabel).startsWith('Piga 11'));
+    expect(dial).toHaveLength(2);
+    for (const button of dial) {
+      let node: ReactTestInstance | null = button;
+      while (node !== null) {
+        expect(node.props.importantForAccessibility).not.toBe('no-hide-descendants');
+        node = node.parent;
+      }
+    }
+    // The screen content under the sheet IS hidden while the sheet is open.
+    expect(tree.root.findAll((n) => n.props.importantForAccessibility === 'no-hide-descendants').length).toBeGreaterThan(0);
+    expect(textOf(tree)).toContain('Vichujio');
+  });
+
+  it('closing the sheet removes the overlay', () => {
+    const tree = render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <EmergencyShell>
+        <BottomSheet visible={false} onClose={jest.fn()} title="Vichujio">
+          <RNTextProbe />
+        </BottomSheet>
+      </EmergencyShell>
+      </SafeAreaProvider>,
+    );
+    expect(textOf(tree)).not.toContain('Vichujio');
+  });
+});
+
+describe('Destructive actions are soft, never solid red', () => {
+  it('danger button is outlined red on a white surface', () => {
+    const style = flatStyle(pressables(render(<Button variant="danger" label="Ghairi miadi" onPress={jest.fn()} />))[0]!);
+    expect(style.backgroundColor).toBe(lightColors.surface);
+    expect(style.borderColor).toBe(lightColors.dangerFg);
+  });
+
+  it('confirm dialog: the safe choice cancels, the other confirms', () => {
+    const onConfirm = jest.fn();
+    const onCancel = jest.fn();
+    const tree = render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <EmergencyShell>
+        <ConfirmDialog
+          visible
+          title="Ghairi miadi hii?"
+          message="Huwezi kutendua hatua hii."
+          confirmLabel="Ndiyo, ghairi"
+          cancelLabel="Hapana, rudi"
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
+      </EmergencyShell>
+      </SafeAreaProvider>,
+    );
+    const byLabel = (label: string): ReactTestInstance =>
+      pressables(tree).find((p) => p.props.accessibilityLabel === label && p.props.accessibilityRole === 'button' && textOf(p).includes(label))!;
+    act(() => byLabel('Hapana, rudi').props.onPress());
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    act(() => byLabel('Ndiyo, ghairi').props.onPress());
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+});
+
+const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } };
+
+/** Plain child for overlay tests. */
+function RNTextProbe(): React.JSX.Element {
+  return <Text>probe</Text>;
+}
