@@ -128,7 +128,7 @@ const useStyles = createStyles(() => ({
     paddingHorizontal: space[4],
   },
   actionWrap: { alignItems: 'center', maxWidth: '100%' },
-  copy: { gap: space[1], alignItems: 'center', maxWidth: 420, alignSelf: 'stretch' },
+  copy: { gap: space[1], alignItems: 'center', maxWidth: 420, width: '100%' },
   halo: { width: 104, height: 104, borderRadius: 52, alignItems: 'center', justifyContent: 'center' },
   core: {
     width: 72,
