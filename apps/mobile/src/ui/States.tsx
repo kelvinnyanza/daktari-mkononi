@@ -55,7 +55,9 @@ export function EmptyState({
         ) : null}
       </View>
       {action !== undefined ? (
-        <Button label={action.label} onPress={action.onPress} {...(action.icon ? { icon: action.icon } : {})} fullWidth={false} />
+        <View style={styles.actionWrap}>
+          <Button label={action.label} onPress={action.onPress} {...(action.icon ? { icon: action.icon } : {})} fullWidth={false} />
+        </View>
       ) : null}
     </View>
   );
@@ -91,7 +93,9 @@ export function ErrorState({
         </Text>
       </View>
       {onRetry !== undefined ? (
-        <Button label={t('common.retry')} icon="refresh-cw" variant="secondary" onPress={onRetry} fullWidth={false} />
+        <View style={styles.actionWrap}>
+          <Button label={t('common.retry')} icon="refresh-cw" variant="secondary" onPress={onRetry} fullWidth={false} />
+        </View>
       ) : null}
     </View>
   );
@@ -104,6 +108,7 @@ const useStyles = createStyles(() => ({
     paddingVertical: space[10],
     paddingHorizontal: space[4],
   },
+  actionWrap: { alignItems: 'center', maxWidth: '100%' },
   copy: { gap: space[1], alignItems: 'center', maxWidth: 420, alignSelf: 'stretch' },
   halo: { width: 104, height: 104, borderRadius: 52, alignItems: 'center', justifyContent: 'center' },
   core: {

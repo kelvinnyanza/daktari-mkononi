@@ -7,16 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
-import {
-  Body,
-  Button,
-  ErrorState,
-  LoadingState,
-  Screen,
-  TextField,
-  Title,
-} from '../../../src/components/ui';
+import { View } from 'react-native';
 import { RatingSection } from '../../../src/features/rating/RatingSection';
 import { leftPendingPayment, pollInterval, mnoWalletLabel } from '../../../src/features/payments/polling';
 import { consultationEntry, isRemoteType } from '../../../src/features/consultation/waiting-room';
@@ -31,7 +22,24 @@ import {
   type AppointmentItem,
   type PaymentItem,
 } from '../../../src/services/endpoints';
-import { colors, radius, spacing, typography } from '../../../src/theme/tokens';
+import { space, useTheme } from '../../../src/theme/theme';
+import {
+  AppointmentStatusPill,
+  Badge,
+  Banner,
+  Button,
+  Card,
+  ErrorState,
+  Header,
+  Icon,
+  Input,
+  PaymentStatusPill,
+  Screen,
+  SkeletonCard,
+  SkeletonGroup,
+  Text,
+  type IconName,
+} from '../../../src/ui';
 
 const CANCELLABLE = new Set(['PENDING_PAYMENT', 'CONFIRMED']);
 
@@ -100,10 +108,19 @@ export default function AppointmentDetail(): React.JSX.Element {
   });
 
   return (
-    <Screen>
-      <Title>{t('appointments.detail.title')}</Title>
+    <Screen
+      header={
+        <Header
+          title={t('appointments.detail.title')}
+          onBack={() => (router.canGoBack() ? router.back() : router.replace('/(patient)/appointments'))}
+        />
+      }
+    >
       {query.isPending ? (
-        <LoadingState />
+        <SkeletonGroup>
+          <SkeletonCard />
+          <SkeletonCard />
+        </SkeletonGroup>
       ) : query.isError || appointment === undefined ? (
         <ErrorState
           message={query.isError ? errorMessage(query.error) : t('error.NOT_FOUND')}
@@ -111,9 +128,19 @@ export default function AppointmentDetail(): React.JSX.Element {
         />
       ) : (
         <>
-          <Body>{eatDateTimeLabel(appointment.scheduledAt)}</Body>
-          <Body>{appointment.reason}</Body>
-          <Body muted>{t(`appointments.status.${appointment.status}`)}</Body>
+          <Card>
+            <AppointmentStatusPill status={appointment.status} />
+            <DetailRow icon="calendar" label={t('appointments.detail.when')} value={eatDateTimeLabel(appointment.scheduledAt)} />
+            <DetailRow
+              icon={appointment.type === 'IN_PERSON' ? 'map-pin' : appointment.type === 'CHAT' ? 'message-square' : appointment.type === 'AUDIO' ? 'phone' : 'video'}
+              label={t('booking.type')}
+              value={t(`booking.type.${appointment.type}`)}
+            />
+            <DetailRow icon="edit-3" label={t('booking.reason')} value={appointment.reason} />
+            {appointment.cancellationReason !== null ? (
+              <DetailRow icon="x-circle" label={t('appointments.detail.cancelled')} value={appointment.cancellationReason} />
+            ) : null}
+          </Card>
 
           {appointment.status === 'PENDING_PAYMENT' && appointment.paymentIntent === 'MOBILE_MONEY' ? (
             <PaymentPendingCard appointment={appointment} payment={payment} onRetry={() => retryPay.mutate()} retrying={retryPay.isPending} />
@@ -131,9 +158,10 @@ export default function AppointmentDetail(): React.JSX.Element {
             const entry = consultationEntry(appointment, new Date());
             if (entry === null) return null;
             return (
-              <>
-                {entry === 'join' ? <Body>{t('consult.joinHint')}</Body> : null}
+              <View style={{ gap: space[3] }}>
+                {entry === 'join' ? <Banner tone="success" icon="video" message={t('consult.joinHint')} /> : null}
                 <Button
+                  icon={entry === 'join' ? 'video' : 'log-in'}
                   label={t(entry === 'join' ? 'consult.join' : 'consult.enterWaitingRoom')}
                   onPress={() =>
                     router.push({
@@ -142,35 +170,47 @@ export default function AppointmentDetail(): React.JSX.Element {
                     })
                   }
                 />
-              </>
+              </View>
             );
           })()}
 
           {appointment.status === 'COMPLETED' ? <RatingSection appointmentId={appointment.id} /> : null}
 
-          {appointment.cancellationReason !== null ? (
-            <Body muted>{appointment.cancellationReason}</Body>
-          ) : null}
+          {actionError !== null ? <Banner tone="danger" message={actionError} /> : null}
+
           {CANCELLABLE.has(appointment.status) ? (
-            <>
-              <TextField
-                label={t('appointments.detail.cancelReason')}
-                value={reason}
-                onChangeText={setReason}
-                error={undefined}
-              />
-              {actionError !== null ? <Body>{actionError}</Body> : null}
+            <Card tone="muted">
+              <Text variant="heading" accessibilityRole="header">
+                {t('appointments.detail.cancel')}
+              </Text>
+              <Input label={t('appointments.detail.cancelReason')} value={reason} onChangeText={setReason} />
               <Button
-                destructive
+                variant="danger"
+                icon="x-circle"
                 label={t('appointments.detail.cancel')}
                 onPress={() => cancel.mutate()}
-                disabled={cancel.isPending}
+                loading={cancel.isPending}
               />
-            </>
+            </Card>
           ) : null}
         </>
       )}
     </Screen>
+  );
+}
+
+function DetailRow({ icon, label, value }: { icon: IconName; label: string; value: string }): React.JSX.Element {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', gap: space[3], alignItems: 'flex-start' }}>
+      <Icon name={icon} size={20} color={colors.textSecondary} />
+      <View style={{ flex: 1 }}>
+        <Text variant="caption" tone="secondary">
+          {label}
+        </Text>
+        <Text variant="bodyStrong">{value}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -193,39 +233,42 @@ function PaymentPendingCard({
 
   if (expired) {
     return (
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>{t('payment.expired.title')}</Text>
-        <Body>{t('payment.expired.body')}</Body>
+      <Card>
+        <Banner tone="warning" title={t('payment.expired.title')} message={t('payment.expired.body')} />
         <Button
+          variant="secondary"
           label={t('payment.rebook')}
           onPress={() => {
             // Rebook: back to the doctor's availability.
             void appointment; // doctorId retained on the appointment
           }}
         />
-      </View>
+      </Card>
     );
   }
 
   const failed = payment?.status === 'FAILED';
   return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>
-        {failed ? t('payment.failed') : t('payment.pending.title')}
-      </Text>
-      {!failed ? (
-        <Body>{t('payment.pending.instruction', { wallet: mnoWalletLabel(phone) })}</Body>
-      ) : null}
+    <Card>
+      <Banner
+        tone={failed ? 'danger' : 'warning'}
+        icon={failed ? 'alert-circle' : 'smartphone'}
+        title={failed ? t('payment.failed') : t('payment.pending.title')}
+        message={
+          failed
+            ? t('payment.status.label') + ': ' + t('payment.status.FAILED')
+            : t('payment.pending.instruction', { wallet: mnoWalletLabel(phone) })
+        }
+      />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], alignItems: 'center' }}>
+        {payment !== undefined ? <PaymentStatusPill status={payment.status} /> : null}
+        {appointment.expiresAt !== null ? <Countdown expiresAt={appointment.expiresAt} /> : null}
+      </View>
       {payment !== undefined ? (
-        <Body>{t('payment.amount', { amount: formatTzs(payment.amountTzs) })}</Body>
+        <Text variant="bodyStrong">{t('payment.amount', { amount: formatTzs(payment.amountTzs) })}</Text>
       ) : null}
-      {appointment.expiresAt !== null ? (
-        <Countdown expiresAt={appointment.expiresAt} />
-      ) : null}
-      {failed ? (
-        <Button label={t('payment.retry')} onPress={onRetry} disabled={retrying} />
-      ) : null}
-    </View>
+      {failed ? <Button icon="refresh-cw" label={t('payment.retry')} onPress={onRetry} loading={retrying} /> : null}
+    </Card>
   );
 }
 
@@ -233,7 +276,7 @@ function PaymentPendingCard({
 function Countdown({ expiresAt }: { expiresAt: string }): React.JSX.Element {
   const t = useT();
   const seconds = secondsUntil(expiresAt, new Date());
-  return <Body muted>{t('payment.countdown', { time: formatCountdown(seconds) })}</Body>;
+  return <Badge tone="warning" icon="clock" label={t('payment.countdown', { time: formatCountdown(seconds) })} />;
 }
 
 function PaymentStatusLines({
@@ -245,41 +288,39 @@ function PaymentStatusLines({
 }): React.JSX.Element {
   const t = useT();
   return (
-    <View style={styles.statusLines}>
-      <Body muted>
-        {t('payment.status.label')}: {t(`payment.status.${payment.status}`)}
-      </Body>
-      {cancelled && payment.status === 'REFUNDED' ? <Body>{t('payment.refund.done')}</Body> : null}
-      {cancelled && payment.refundPending ? <Body>{t('payment.refund.pending')}</Body> : null}
+    <Card>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], alignItems: 'center' }}>
+        <Text variant="label">{t('payment.status.label')}</Text>
+        <PaymentStatusPill status={payment.status} />
+      </View>
+      {cancelled && payment.status === 'REFUNDED' ? <Banner tone="success" message={t('payment.refund.done')} /> : null}
+      {cancelled && payment.refundPending ? <Banner tone="info" message={t('payment.refund.pending')} /> : null}
       {payment.status === 'COMPLETED' || payment.status === 'REFUNDED' ? (
-        <View style={styles.statusLines}>
-          <Body>{t('payment.receipt.title')}</Body>
-          <Body muted>
-            {t('payment.receipt.fee')}: {formatTzs(payment.amountTzs)}
-          </Body>
-          <Body muted>
-            {t('payment.receipt.commission')}: {formatTzs(payment.platformFeeTzs)}
-          </Body>
-          <Body muted>
-            {t('payment.receipt.vat')}: {formatTzs(payment.vatTzs)}
-          </Body>
-          <Body muted>
-            {t('payment.receipt.doctor')}: {formatTzs(payment.doctorAmountTzs)}
-          </Body>
-          <Body muted>{t('payment.receipt.vatNote')}</Body>
+        <View style={{ gap: space[2] }}>
+          <Text variant="heading" accessibilityRole="header">
+            {t('payment.receipt.title')}
+          </Text>
+          <ReceiptRow label={t('payment.receipt.fee')} value={formatTzs(payment.amountTzs)} strong />
+          <ReceiptRow label={t('payment.receipt.commission')} value={formatTzs(payment.platformFeeTzs)} />
+          <ReceiptRow label={t('payment.receipt.vat')} value={formatTzs(payment.vatTzs)} />
+          <ReceiptRow label={t('payment.receipt.doctor')} value={formatTzs(payment.doctorAmountTzs)} />
+          <Text variant="caption" tone="secondary">
+            {t('payment.receipt.vatNote')}
+          </Text>
         </View>
       ) : null}
-    </View>
+    </Card>
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  cardTitle: { ...typography.subtitle, color: colors.text },
-  statusLines: { gap: spacing.xs },
-});
+/** Label wraps on the left, amount stays whole on the right. */
+function ReceiptRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }): React.JSX.Element {
+  return (
+    <View style={{ flexDirection: 'row', gap: space[3], alignItems: 'flex-start' }}>
+      <Text tone={strong ? 'default' : 'secondary'} style={{ flex: 1 }}>
+        {label}
+      </Text>
+      <Text variant={strong ? 'bodyStrong' : 'body'}>{value}</Text>
+    </View>
+  );
+}
