@@ -8,7 +8,7 @@ stock photos of people; "illustrations" are soft tinted circles with an icon.
   (+ raw [`palette.ts`](../apps/mobile/src/theme/palette.ts), [`fonts.ts`](../apps/mobile/src/theme/fonts.ts))
 - Components: [`apps/mobile/src/ui/`](../apps/mobile/src/ui/index.ts) — import from `src/ui`
 - Live preview (dev builds only): `daktari://dev/style-preview`
-- Logo source: [`apps/mobile/assets/brand/logo-mark.svg`](../apps/mobile/assets/brand/logo-mark.svg)
+- Logo geometry: [`apps/mobile/scripts/brand-assets.mjs`](../apps/mobile/scripts/brand-assets.mjs) (generates every SVG/PNG in `apps/mobile/assets/brand/`)
 
 ## Brand
 
@@ -23,9 +23,12 @@ on its screen ("a doctor in your hand"), on a teal rounded tile. Original
 geometry: rectangles plus one curve. It has no lettering and borrows no
 established symbol (no caduceus, no serpent, no red cross).
 
-- The SVG is the only source. PNGs are generated with
-  `pnpm --filter @daktari/mobile brand:assets` (resvg, dev-only), because the
-  app ships no SVG renderer (react-native-svg would be a new native module).
+- The geometry lives in `scripts/brand-assets.mjs`; `pnpm --filter @daktari/mobile brand:assets`
+  writes the SVGs and all PNGs (resvg, dev-only): in-app mark @1x/2x/3x, app icon
+  (square, full-bleed), Android adaptive foreground (66% safe zone) + monochrome
+  themed icon, splash image (white background) and web favicon. The app ships
+  PNGs because RN has no SVG renderer (react-native-svg would be a new native module).
+- App icon / splash changes only reach users through a **new EAS build**.
 - Minimum size 24dp. Keep clear space of ¼ of the mark's width around it.
   Never recolour, rotate, outline or add effects. On teal backgrounds, use the
   tile as is: the mark already carries its own tile.
