@@ -226,6 +226,7 @@ function PaymentPendingCard({
   retrying: boolean;
 }): React.JSX.Element {
   const t = useT();
+  const router = useRouter();
   const me = useQuery({ queryKey: ['auth', 'me'], queryFn: () => authApi.me() });
   const phone = me.data?.user.phone ?? '';
   const expired =
@@ -236,12 +237,12 @@ function PaymentPendingCard({
       <Card>
         <Banner tone="warning" title={t('payment.expired.title')} message={t('payment.expired.body')} />
         <Button
-          variant="secondary"
+          icon="calendar"
           label={t('payment.rebook')}
-          onPress={() => {
-            // Rebook: back to the doctor's availability.
-            void appointment; // doctorId retained on the appointment
-          }}
+          onPress={() =>
+            // Rebook: the same doctor's availability + booking page.
+            router.push({ pathname: '/(patient)/doctors/[id]', params: { id: appointment.doctorId } })
+          }
         />
       </Card>
     );
