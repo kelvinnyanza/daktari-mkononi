@@ -2,7 +2,7 @@
  * Display labels for server enum codes (presentation only — the codes sent
  * to the API are unchanged).
  */
-import { doctorSpecialtySchema } from '@daktari/schemas';
+import { doctorSpecialtySchema, regionFromAny } from '@daktari/schemas';
 import type { useT } from '../i18n';
 
 type T = ReturnType<typeof useT>;
@@ -13,9 +13,13 @@ export function specialtyLabel(t: T, code: string): string {
   return parsed.success ? t(`specialty.${parsed.data}`) : titleCase(code);
 }
 
-/** "DAR_ES_SALAAM" → "Dar es Salaam", "KASKAZINI_PEMBA" → "Kaskazini Pemba" (proper nouns, not translated). */
-export function regionLabel(code: string): string {
-  return titleCase(code).replace(/\bEs\b/g, 'es');
+/**
+ * "DAR_ES_SALAAM" → "Dar es Salaam", "KASKAZINI_PEMBA" → "Kaskazini Pemba"
+ * (proper nouns, not translated). Also accepts legacy stored names
+ * ("Mwanza") via regionFromAny; anything else is title-cased as is.
+ */
+export function regionLabel(value: string): string {
+  return titleCase(regionFromAny(value) ?? value).replace(/\bEs\b/g, 'es');
 }
 
 function titleCase(code: string): string {

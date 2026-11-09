@@ -1,4 +1,4 @@
-import { tzRegionSchema } from '@daktari/schemas';
+import { regionFromAny, tzRegionSchema } from '@daktari/schemas';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -56,7 +56,8 @@ export default function Profile(): React.JSX.Element {
   const startEditing = (): void => {
     const profile = query.data;
     if (!profile) return;
-    setRegion(profile.region === 'UNKNOWN' ? null : profile.region);
+    // Stored as a code; older rows hold the display name ('Mwanza') — both preselect.
+    setRegion(regionFromAny(profile.region));
     setDistrict(profile.district === 'UNKNOWN' ? '' : profile.district);
     setWard(profile.ward ?? '');
     setStreet(profile.street ?? '');

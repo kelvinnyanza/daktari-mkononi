@@ -13,6 +13,8 @@ describe('display labels', () => {
     ['DAR_ES_SALAAM', 'Dar es Salaam'],
     ['KASKAZINI_PEMBA', 'Kaskazini Pemba'],
     ['MWANZA', 'Mwanza'],
+    ['Mwanza', 'Mwanza'],
+    ['Dar es Salaam', 'Dar es Salaam'],
   ])('region %s → %s', (code, label) => {
     expect(regionLabel(code)).toBe(label);
   });

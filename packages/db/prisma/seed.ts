@@ -26,11 +26,12 @@ const seedPasswordHash: Promise<string> = hashPassword(SEED_PASSWORD);
 async function seedHospitals() {
   const muhimbili = await prisma.hospital.upsert({
     where: { id: 'seed-hosp-muhimbili' },
-    update: {},
+    // Re-seeding normalizes regions stored as display names by older seeds.
+    update: { region: 'DAR_ES_SALAAM' },
     create: {
       id: 'seed-hosp-muhimbili',
       name: 'Muhimbili National Hospital',
-      region: 'Dar es Salaam',
+      region: 'DAR_ES_SALAAM',
       district: 'Ilala',
       address: 'Barabara ya Malik, Upanga, Dar es Salaam',
       phone: '+255222151591',
@@ -50,11 +51,11 @@ async function seedHospitals() {
 
   const bugando = await prisma.hospital.upsert({
     where: { id: 'seed-hosp-bugando' },
-    update: {},
+    update: { region: 'MWANZA' },
     create: {
       id: 'seed-hosp-bugando',
       name: 'Bugando Medical Centre',
-      region: 'Mwanza',
+      region: 'MWANZA',
       district: 'Nyamagana',
       address: 'Wurzburg Road, Mwanza',
       phone: '+255282500513',
@@ -171,7 +172,8 @@ interface PatientSeed {
   fullName: string;
   gender: 'MALE' | 'FEMALE';
   dateOfBirth: string;
-  region: string;
+  /** Region CODE (tzRegionSchema in @daktari/schemas) — never the display name. */
+  region: 'DAR_ES_SALAAM' | 'MWANZA' | 'ARUSHA' | 'DODOMA';
   district: string;
   nhifCardNumber: string | null;
 }
@@ -183,7 +185,7 @@ async function seedPatients() {
       fullName: 'Juma Rashidi Mwinyi',
       gender: 'MALE',
       dateOfBirth: '1985-03-12',
-      region: 'Dar es Salaam',
+      region: 'DAR_ES_SALAAM',
       district: 'Kinondoni',
       nhifCardNumber: '110023456789',
     },
@@ -192,7 +194,7 @@ async function seedPatients() {
       fullName: 'Fatuma Hassani Kombo',
       gender: 'FEMALE',
       dateOfBirth: '1992-11-05',
-      region: 'Mwanza',
+      region: 'MWANZA',
       district: 'Ilemela',
       nhifCardNumber: null,
     },
@@ -201,7 +203,7 @@ async function seedPatients() {
       fullName: 'Elia Msigwa Sanga',
       gender: 'MALE',
       dateOfBirth: '1978-07-22',
-      region: 'Arusha',
+      region: 'ARUSHA',
       district: 'Arusha Mjini',
       nhifCardNumber: '110087654321',
     },
@@ -210,7 +212,7 @@ async function seedPatients() {
       fullName: 'Rehema Petro Mollel',
       gender: 'FEMALE',
       dateOfBirth: '2001-01-30',
-      region: 'Dodoma',
+      region: 'DODOMA',
       district: 'Dodoma Mjini',
       nhifCardNumber: null,
     },
@@ -219,7 +221,8 @@ async function seedPatients() {
   for (const seed of patients) {
     await prisma.user.upsert({
       where: { phone: seed.phone },
-      update: {},
+      // Re-seeding normalizes regions stored as display names by older seeds.
+      update: { patient: { update: { region: seed.region } } },
       create: {
         phone: seed.phone,
         passwordHash: await seedPasswordHash,

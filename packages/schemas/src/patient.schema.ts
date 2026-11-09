@@ -45,6 +45,19 @@ export const tzRegionSchema = z.enum([
 ]);
 export type TzRegion = z.infer<typeof tzRegionSchema>;
 
+/**
+ * Region values are STORED as codes ('MWANZA', 'DAR_ES_SALAAM'). Older rows
+ * (early seed data) hold display names ('Mwanza', 'Dar es Salaam'); readers
+ * normalize through this so both work. Returns null for anything that is not
+ * a known region (e.g. the 'UNKNOWN' placeholder).
+ */
+export function regionFromAny(value: string | null | undefined): TzRegion | null {
+  if (value === null || value === undefined) return null;
+  const key = value.trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const parsed = tzRegionSchema.safeParse(key);
+  return parsed.success ? parsed.data : null;
+}
+
 export const emergencyContactSchema = z.object({
   name: z.string().trim().min(2).max(120),
   phone: tzPhoneSchema,
