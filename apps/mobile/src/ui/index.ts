@@ -28,4 +28,5 @@ export {
   PaymentStatusPill,
   type BadgeTone,
 } from './StatusPill';
+export { SwitchRow } from './SwitchRow';
 export { Text, type TextTone } from './Text';

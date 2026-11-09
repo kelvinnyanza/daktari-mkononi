@@ -5,19 +5,8 @@
  */
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import {
-  Body,
-  Button,
-  ChipRow,
-  EmptyState,
-  ErrorState,
-  LoadingState,
-  Screen,
-  TextField,
-  Title,
-} from '../../../src/components/ui';
 import {
   availableIntents,
   availableTypes,
@@ -27,9 +16,28 @@ import {
 import { useT } from '../../../src/i18n';
 import { buildDateStrip } from '../../../src/lib/datetime';
 import { errorMessage, isApiError } from '../../../src/lib/errors';
+import { specialtyLabel } from '../../../src/lib/labels';
 import { formatTzs } from '../../../src/lib/money';
 import { appointmentApi, doctorApi, patientApi } from '../../../src/services/endpoints';
-import { colors, radius, spacing, typography } from '../../../src/theme/tokens';
+import { space } from '../../../src/theme/theme';
+import {
+  Avatar,
+  Badge,
+  Banner,
+  Button,
+  Card,
+  ChipGroup,
+  EmptyState,
+  ErrorState,
+  Header,
+  Input,
+  Screen,
+  Section,
+  SkeletonCard,
+  SkeletonGroup,
+  Skeleton,
+  Text,
+} from '../../../src/ui';
 
 export default function DoctorDetailScreen(): React.JSX.Element {
   const t = useT();
@@ -79,13 +87,31 @@ export default function DoctorDetailScreen(): React.JSX.Element {
     },
   });
 
-  if (doctor.isPending) return <LoadingState />;
+  const header = (
+    <Header
+      title={t('booking.title')}
+      onBack={() => (router.canGoBack() ? router.back() : router.replace('/(patient)/doctors'))}
+    />
+  );
+
+  if (doctor.isPending) {
+    return (
+      <Screen header={header}>
+        <SkeletonGroup>
+          <SkeletonCard />
+          <SkeletonCard />
+        </SkeletonGroup>
+      </Screen>
+    );
+  }
   if (doctor.isError) {
     return (
-      <ErrorState
-        message={errorMessage(doctor.error, t('common.error.generic'))}
-        onRetry={() => void doctor.refetch()}
-      />
+      <Screen header={header}>
+        <ErrorState
+          message={errorMessage(doctor.error, t('common.error.generic'))}
+          onRetry={() => void doctor.refetch()}
+        />
+      </Screen>
     );
   }
 
@@ -95,74 +121,105 @@ export default function DoctorDetailScreen(): React.JSX.Element {
   if (!types.includes(type)) setType('VIDEO');
   if (!intents.includes(intent)) setIntent('MOBILE_MONEY');
 
+  const selectedSlot = availability.data?.slots.find((s) => s.startUtc === slot);
+
   return (
-    <Screen>
-      <Title>{doctor.data.fullName}</Title>
-      <Body muted>
-        {doctor.data.specialty.replace(/_/g, ' ')} · {formatTzs(doctor.data.consultationFeeTzs)} ·{' '}
-        {`★ ${doctor.data.averageRating.toFixed(1)}`}
-      </Body>
-      {doctor.data.bio !== null ? <Body>{doctor.data.bio}</Body> : null}
+    <Screen header={header}>
+      <Card>
+        <View style={{ flexDirection: 'row', gap: space[3], alignItems: 'center' }}>
+          <Avatar name={doctor.data.fullName} size="lg" />
+          <View style={{ flex: 1, gap: space[1] }}>
+            <Text variant="heading">{doctor.data.fullName}</Text>
+            <Text variant="caption" tone="secondary">
+              {specialtyLabel(t, doctor.data.specialty)}
+              {doctor.data.subSpecialty !== null ? ` · ${doctor.data.subSpecialty}` : ''}
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
+              <Badge tone="neutral" icon="star" label={doctor.data.averageRating.toFixed(1)} />
+              {doctor.data.acceptsNhif ? <Badge tone="success" icon="shield" label={t('doctors.nhifBadge')} /> : null}
+            </View>
+          </View>
+        </View>
+        <Text variant="bodyStrong" tone="primary">
+          {formatTzs(doctor.data.consultationFeeTzs)}
+        </Text>
+        <Text variant="caption" tone="secondary">
+          {t('doctors.experience', { years: String(doctor.data.yearsOfExperience) })}
+        </Text>
+        {doctor.data.bio !== null ? <Text>{doctor.data.bio}</Text> : null}
+      </Card>
 
       {/* Date strip: next 7 EAT days */}
-      <Body muted>{t('doctors.detail.availability')}</Body>
-      <ChipRow
-        options={dateStrip.map((day) => ({
-          value: day.date,
-          label: `${t(`weekday.${day.weekday}` as never)} ${day.dayOfMonth}`,
-        }))}
-        value={date}
-        onChange={(value) => {
-          setDate(value);
-          setSlot(null);
-          setSlotTaken(false);
-        }}
-      />
-
-      {availability.isPending ? (
-        <LoadingState />
-      ) : availability.isError ? (
-        <ErrorState
-          message={errorMessage(availability.error, t('common.error.generic'))}
-          onRetry={() => void availability.refetch()}
+      <Section
+        title={
+          <Text variant="heading" accessibilityRole="header">
+            {t('doctors.detail.availability')}
+          </Text>
+        }
+      >
+        <ChipGroup
+          scroll
+          options={dateStrip.map((day) => ({
+            value: day.date,
+            label: `${t(`weekday.${day.weekday}` as never)} ${day.dayOfMonth}`,
+          }))}
+          value={date}
+          onChange={(value) => {
+            setDate(value);
+            setSlot(null);
+            setSlotTaken(false);
+          }}
         />
-      ) : availability.data.slots.length === 0 ? (
-        <EmptyState message={t('doctors.detail.noSlots')} />
-      ) : (
-        <View style={styles.slotGrid}>
-          {availability.data.slots.map((entry) => (
-            <View key={entry.startUtc} style={styles.slotCell}>
-              <Button
-                label={entry.startEat}
-                onPress={() => {
-                  setSlot(entry.startUtc);
-                  setSlotTaken(false);
-                }}
-                disabled={slot === entry.startUtc}
-              />
+
+        {availability.isPending ? (
+          <SkeletonGroup>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
+              <Skeleton width={88} height={48} rounded={24} />
+              <Skeleton width={88} height={48} rounded={24} />
+              <Skeleton width={88} height={48} rounded={24} />
             </View>
-          ))}
-        </View>
-      )}
-      {slotTaken ? <Text style={styles.slotTaken}>{t('booking.slotTaken')}</Text> : null}
+          </SkeletonGroup>
+        ) : availability.isError ? (
+          <ErrorState
+            message={errorMessage(availability.error, t('common.error.generic'))}
+            onRetry={() => void availability.refetch()}
+          />
+        ) : availability.data.slots.length === 0 ? (
+          <Card tone="muted">
+            <EmptyState icon="calendar" title={t('doctors.detail.noSlots')} />
+          </Card>
+        ) : (
+          <ChipGroup
+            options={availability.data.slots.map((entry) => ({ value: entry.startUtc, label: entry.startEat }))}
+            value={slot}
+            onChange={(value) => {
+              setSlot(value);
+              setSlotTaken(false);
+            }}
+          />
+        )}
+        {slotTaken ? <Banner tone="warning" message={t('booking.slotTaken')} /> : null}
+      </Section>
 
       {slot !== null ? (
-        <View style={styles.bookingBox}>
-          <Text style={styles.sectionTitle}>{t('booking.title')}</Text>
-          <Body muted>
-            {t('booking.slot', {
-              time: `${date} ${availability.data?.slots.find((s) => s.startUtc === slot)?.startEat ?? ''}`,
-            })}
-          </Body>
+        <Card>
+          <Text variant="heading" accessibilityRole="header">
+            {t('booking.title')}
+          </Text>
+          <Badge
+            tone="primary"
+            icon="clock"
+            label={t('booking.slot', { time: `${date} ${selectedSlot?.startEat ?? ''}` })}
+          />
 
-          <Body muted>{t('booking.type')}</Body>
-          <ChipRow
+          <Text variant="label">{t('booking.type')}</Text>
+          <ChipGroup
             options={types.map((value) => ({ value, label: t(`booking.type.${value}` as never) }))}
             value={type}
             onChange={setType}
           />
 
-          <TextField
+          <Input
             label={t('booking.reason')}
             value={reason}
             onChangeText={setReason}
@@ -170,37 +227,26 @@ export default function DoctorDetailScreen(): React.JSX.Element {
             error={reason.length > 0 && !reasonValid ? t('booking.reason.error') : undefined}
           />
 
-          <Body muted>{t('booking.intent.title')}</Body>
-          <ChipRow
+          <Text variant="label">{t('booking.intent.title')}</Text>
+          <ChipGroup
             options={intents.map((value) => ({ value, label: t(`booking.intent.${value}` as never) }))}
             value={intent}
             onChange={setIntent}
           />
 
           {book.isError && !(isApiError(book.error) && book.error.code === 'SLOT_TAKEN') ? (
-            <Text style={styles.slotTaken}>{errorMessage(book.error, t('common.error.generic'))}</Text>
+            <Banner tone="danger" message={errorMessage(book.error, t('common.error.generic'))} />
           ) : null}
 
           <Button
             label={t('booking.confirm')}
+            icon="check"
             onPress={() => book.mutate()}
-            disabled={!reasonValid || book.isPending}
+            loading={book.isPending}
+            disabled={!reasonValid}
           />
-        </View>
+        </Card>
       ) : null}
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  slotCell: { minWidth: 90 },
-  slotTaken: { ...typography.body, color: colors.danger },
-  bookingBox: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  sectionTitle: { ...typography.subtitle, color: colors.text },
-});

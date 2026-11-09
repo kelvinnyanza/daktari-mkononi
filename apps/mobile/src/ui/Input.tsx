@@ -5,6 +5,7 @@ import { useT } from '../i18n';
 import { Icon, type IconName } from './Icon';
 import { IconButton } from './IconButton';
 import { Text } from './Text';
+import { noWebOutline } from './web-outline';
 
 export interface InputProps extends Omit<TextInputProps, 'style' | 'editable'> {
   label: string;
@@ -134,6 +135,8 @@ const useStyles = createStyles((c) => ({
     ...type.body,
     color: c.text,
     paddingVertical: space[3],
+    // Web preview only: the field's own border is the focus indicator.
+    ...noWebOutline,
   },
   messageRow: { flexDirection: 'row', gap: space[1], alignItems: 'flex-start' },
   message: { flexShrink: 1 },

@@ -21,6 +21,7 @@ import { useT } from '../../src/i18n';
 import { errorMessage, isApiError } from '../../src/lib/errors';
 import { specialtyLabel } from '../../src/lib/labels';
 import { formatTzs } from '../../src/lib/money';
+import { noWebOutline } from '../../src/ui/web-outline';
 import { screeningApi } from '../../src/services/endpoints';
 import { fontFamily } from '../../src/theme/fonts';
 import { createStyles, layout, radius, space, type, useTheme } from '../../src/theme/theme';
@@ -394,6 +395,7 @@ const useStyles = createStyles((c) => ({
     ...type.body,
     color: c.text,
     backgroundColor: c.surface,
+    ...noWebOutline,
   },
   counter: { alignSelf: 'flex-end' },
   doctorList: { gap: space[3] },

@@ -1,24 +1,33 @@
 /** Doctor directory (Phase 9): filters + rating-sorted list from the server. */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { View } from 'react-native';
 import { router } from 'expo-router';
 import { doctorSpecialtySchema, tzRegionSchema } from '@daktari/schemas';
-import {
-  Body,
-  ChipRow,
-  EmptyState,
-  ErrorState,
-  LoadingState,
-  Screen,
-  TextField,
-  Title,
-} from '../../../src/components/ui';
 import { useT } from '../../../src/i18n';
 import { errorMessage } from '../../../src/lib/errors';
+import { regionLabel, specialtyLabel } from '../../../src/lib/labels';
 import { formatTzs } from '../../../src/lib/money';
 import { doctorApi, type DoctorListItem } from '../../../src/services/endpoints';
-import { colors, radius, spacing, typography } from '../../../src/theme/tokens';
+import { space } from '../../../src/theme/theme';
+import {
+  Avatar,
+  Badge,
+  BottomSheet,
+  Button,
+  Card,
+  ChipGroup,
+  EmptyState,
+  ErrorState,
+  Header,
+  Input,
+  ListItem,
+  Screen,
+  SkeletonGroup,
+  SkeletonListItem,
+  SwitchRow,
+  Text,
+} from '../../../src/ui';
 
 const SPECIALTIES = doctorSpecialtySchema.options;
 const REGIONS = tzRegionSchema.options;
@@ -29,6 +38,7 @@ export default function DoctorDirectoryScreen(): React.JSX.Element {
   const [region, setRegion] = useState<string | null>(null);
   const [nhifOnly, setNhifOnly] = useState(false);
   const [maxFee, setMaxFee] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const query = useQuery({
     queryKey: ['doctors', specialty, region, nhifOnly, maxFee],
@@ -41,93 +51,137 @@ export default function DoctorDirectoryScreen(): React.JSX.Element {
       }),
   });
 
-  return (
-    <Screen>
-      <Title>{t('doctors.title')}</Title>
+  // Filters living in the sheet (specialty stays visible on the screen).
+  const activeFilters = (region !== null ? 1 : 0) + (nhifOnly ? 1 : 0) + (maxFee !== '' ? 1 : 0);
+  const clearFilters = (): void => {
+    setRegion(null);
+    setNhifOnly(false);
+    setMaxFee('');
+  };
 
-      <Body muted>{t('doctors.filter.specialty')}</Body>
-      <ChipRow
-        options={[
-          { value: '__any__', label: t('doctors.filter.any') },
-          ...SPECIALTIES.map((value) => ({ value: value as string, label: value.replace(/_/g, ' ') })),
-        ]}
-        value={specialty ?? '__any__'}
-        onChange={(value) => setSpecialty(value === '__any__' ? null : value)}
-      />
-      <Body muted>{t('doctors.filter.region')}</Body>
-      <ChipRow
-        options={[
-          { value: '__any__', label: t('doctors.filter.any') },
-          ...REGIONS.map((value) => ({ value: value as string, label: value.replace(/_/g, ' ') })),
-        ]}
-        value={region ?? '__any__'}
-        onChange={(value) => setRegion(value === '__any__' ? null : value)}
-      />
-      <View style={styles.switchRow}>
-        <Body>{t('doctors.filter.nhif')}</Body>
-        <Switch value={nhifOnly} onValueChange={setNhifOnly} />
+  return (
+    <Screen
+      header={
+        <Header
+          title={t('doctors.title')}
+          onBack={() => (router.canGoBack() ? router.back() : router.replace('/(patient)/home'))}
+        />
+      }
+    >
+      <View style={{ gap: space[3] }}>
+        <Text variant="label">{t('doctors.filter.specialty')}</Text>
+        <ChipGroup
+          scroll
+          options={[
+            { value: '__any__', label: t('doctors.filter.any') },
+            ...SPECIALTIES.map((value) => ({ value: value as string, label: specialtyLabel(t, value) })),
+          ]}
+          value={specialty ?? '__any__'}
+          onChange={(value) => setSpecialty(value === '__any__' ? null : value)}
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          icon="sliders"
+          fullWidth={false}
+          label={activeFilters > 0 ? `${t('doctors.filters')} (${activeFilters})` : t('doctors.filters')}
+          onPress={() => setFiltersOpen(true)}
+        />
       </View>
-      <TextField
-        label={t('doctors.filter.maxFee')}
-        value={maxFee}
-        onChangeText={setMaxFee}
-        keyboardType="number-pad"
-      />
 
       {query.isPending ? (
-        <LoadingState />
+        <Card>
+          <SkeletonGroup>
+            <SkeletonListItem />
+            <SkeletonListItem />
+            <SkeletonListItem />
+          </SkeletonGroup>
+        </Card>
       ) : query.isError ? (
-        <ErrorState
-          message={errorMessage(query.error, t('common.error.generic'))}
-          onRetry={() => void query.refetch()}
-        />
+        <Card>
+          <ErrorState
+            message={errorMessage(query.error, t('common.error.generic'))}
+            onRetry={() => void query.refetch()}
+          />
+        </Card>
       ) : query.data.items.length === 0 ? (
-        <EmptyState message={t('doctors.none')} />
+        <Card>
+          <EmptyState
+            icon="search"
+            title={t('doctors.none')}
+            {...(activeFilters > 0 || specialty !== null
+              ? {
+                  action: {
+                    label: t('doctors.filters.clear'),
+                    icon: 'x' as const,
+                    onPress: () => {
+                      clearFilters();
+                      setSpecialty(null);
+                    },
+                  },
+                }
+              : {})}
+          />
+        </Card>
       ) : (
-        query.data.items.map((doctor) => <DoctorCard key={doctor.id} doctor={doctor} />)
+        <Card padded={false} style={{ overflow: 'hidden' }}>
+          {query.data.items.map((doctor, index) => (
+            <DoctorRow key={doctor.id} doctor={doctor} divider={index < query.data.items.length - 1} />
+          ))}
+        </Card>
       )}
+
+      <BottomSheet visible={filtersOpen} onClose={() => setFiltersOpen(false)} title={t('doctors.filters')}>
+        <Text variant="label">{t('doctors.filter.region')}</Text>
+        <ChipGroup
+          options={[
+            { value: '__any__', label: t('doctors.filter.any') },
+            ...REGIONS.map((value) => ({ value: value as string, label: regionLabel(value) })),
+          ]}
+          value={region ?? '__any__'}
+          onChange={(value) => setRegion(value === '__any__' ? null : value)}
+        />
+        <SwitchRow label={t('doctors.filter.nhif')} value={nhifOnly} onChange={setNhifOnly} />
+        <Input
+          label={t('doctors.filter.maxFee')}
+          leadingIcon="credit-card"
+          value={maxFee}
+          onChangeText={setMaxFee}
+          keyboardType="number-pad"
+        />
+        <Button label={t('doctors.filters.apply')} icon="check" onPress={() => setFiltersOpen(false)} />
+        {activeFilters > 0 ? (
+          <Button variant="ghost" label={t('doctors.filters.clear')} onPress={clearFilters} />
+        ) : null}
+      </BottomSheet>
     </Screen>
   );
 }
 
-function DoctorCard({ doctor }: { doctor: DoctorListItem }): React.JSX.Element {
+function DoctorRow({ doctor, divider }: { doctor: DoctorListItem; divider: boolean }): React.JSX.Element {
   const t = useT();
+  const languages = doctor.languages
+    .map((code) => (code === 'sw' ? t('profile.language.sw') : code === 'en' ? t('profile.language.en') : code))
+    .join(' / ');
   return (
-    <Pressable
-      accessibilityRole="button"
-      style={styles.card}
+    <ListItem
+      title={doctor.fullName}
+      subtitle={`${specialtyLabel(t, doctor.specialty)}${doctor.subSpecialty !== null ? ` · ${doctor.subSpecialty}` : ''}`}
+      leading={<Avatar name={doctor.fullName} />}
+      meta={
+        <>
+          <Text variant="bodyStrong" tone="primary">
+            {formatTzs(doctor.consultationFeeTzs)}
+          </Text>
+          <Badge tone="neutral" icon="star" label={doctor.averageRating.toFixed(1)} />
+          {doctor.acceptsNhif ? <Badge tone="success" icon="shield" label={t('doctors.nhifBadge')} /> : null}
+          <Text variant="caption" tone="secondary">
+            {`${t('doctors.experience', { years: String(doctor.yearsOfExperience) })} · ${languages}`}
+          </Text>
+        </>
+      }
       onPress={() => router.push({ pathname: '/(patient)/doctors/[id]', params: { id: doctor.id } })}
-    >
-      <Text style={styles.cardName}>{doctor.fullName}</Text>
-      <Text style={styles.cardMeta}>
-        {doctor.specialty.replace(/_/g, ' ')}
-        {doctor.subSpecialty !== null ? ` · ${doctor.subSpecialty}` : ''}
-      </Text>
-      <Text style={styles.cardMeta}>{t('doctors.experience', { years: String(doctor.yearsOfExperience) })}</Text>
-      <View style={styles.cardFooter}>
-        <Text style={styles.cardFee}>{formatTzs(doctor.consultationFeeTzs)}</Text>
-        <Text style={styles.cardRating}>{`★ ${doctor.averageRating.toFixed(1)}`}</Text>
-        <Text style={styles.cardMeta}>{doctor.languages.join(' / ').toUpperCase()}</Text>
-      </View>
-    </Pressable>
+      divider={divider}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  cardName: { ...typography.subtitle, color: colors.text },
-  cardMeta: { ...typography.caption, color: colors.textMuted },
-  cardFooter: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
-  cardFee: { ...typography.body, color: colors.primaryDark, fontWeight: '700' },
-  cardRating: { ...typography.body, color: colors.text },
-});
