@@ -114,7 +114,7 @@ own family.
 |---|---|
 | `Screen` | safe area + background + optional `header` + scrolling capped column + optional sticky `footer` (primary action within thumb reach). Also `Section`, `Stack`, `useResponsive()`. |
 | `Header` | `onBack` adds a 48dp back button labelled "Rudi nyuma" / "Go back"; `large` for tab screens; titles wrap and are never truncated. |
-| `Button` | `primary` · `secondary` (tonal) · `ghost` · `danger`; `size md/sm`; `icon`; `loading` (spinner, label kept, presses blocked); `disabled`. Full width by default. Labels wrap. |
+| `Button` | `primary` · `secondary` (tonal) · `ghost` · `danger` (**outlined** red, destructive only — solid red is reserved for 112/115); `size md/sm`; `icon`; `loading` (spinner, label kept, presses blocked); `disabled`. Full width by default. Labels wrap. |
 | `IconButton` | 48×48; **`accessibilityLabel` is required by type**. Pass a `t()` string so it is read in Swahili or English. |
 | `Card` | `tone default/muted/primary`; with `onPress` it becomes one tap target (then pass `accessibilityLabel`). |
 | `Input` | visible label above, `hint` below, `error` replaces the hint (red border + icon, announced politely), `leadingIcon`, `disabled`. No jump between states. |
@@ -127,7 +127,7 @@ own family.
 | `Skeleton*` | one shared native-driver pulse; static when "remove animations" is on; hidden for the first 150ms; announced once via `SkeletonGroup`. |
 | `Banner` | `info/success/warning/danger`, optional title and action. |
 | `EmergencyStrip`, `EmergencyCallCard` | solid red; the card has "Piga 112" / "Piga 115" call buttons (`tel:`). |
-| `BottomSheet` | RN `Modal` plus one 220ms slide; closes on backdrop tap, close button and Android back; capped width on tablets. |
+| `BottomSheet`, `ConfirmDialog` | Rendered in the `OverlayHost` inside `EmergencyShell`, **below the emergency strip** — never RN `Modal`/`Alert` inside the shells (they would dim 112/115). One 220ms slide; closes on backdrop, close button and Android back; capped width on tablets. Use `ConfirmDialog` before destructive actions. |
 | `Logo`, `LogoMark` | see Brand. |
 | `Icon` | Feather line icons (`@expo/vector-icons`, 56 KB font, preloaded). Decorative and hidden from screen readers. |
 
@@ -149,7 +149,9 @@ own family.
 - Don't use `maxFontSizeMultiplier` on content text. (The logotype and
   initials avatars are fixed artwork; the text beside them scales.)
 - Don't restyle, tint or soften 112/115 emergency UI, and don't use
-  `danger` for it.
+  `danger` for it. Nothing may cover or dim the strip: no `Modal`/`Alert`
+  inside the shells — use `BottomSheet` / `ConfirmDialog`.
+- Don't use solid red for anything but emergency (destructive = outlined).
 - Don't add animation libraries. Use subtle `Animated` with the native driver
   only, and respect "remove animations".
 - Don't use photos of people or stock imagery.
