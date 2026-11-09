@@ -11,7 +11,8 @@
     "lint": "eslint app src --max-warnings 0",
     "test": "jest --ci --silent",
     "ios": "expo run:ios",
-    "brand:assets": "node scripts/brand-assets.mjs"
+    "brand:assets": "node scripts/brand-assets.mjs",
+    "check:bundle-duplicates": "node scripts/check-bundle-duplicates.mjs"
   },
   "dependencies": {
     "@daily-co/config-plugin-rn-daily-js": "0.0.11",

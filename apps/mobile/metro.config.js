@@ -23,7 +23,22 @@ config.resolver.unstable_enableSymlinks = true;
 // real fix is packageExtensions in pnpm-workspace.yaml; this pin makes any
 // future offender harmless by resolving react/* from this app, whoever asks.
 // react-dom too (web target only uses it): it must match this app's React.
-const PINNED = /^react(-dom)?(\/.*)?$/;
+//
+// The same rule covers every package that holds React context and therefore
+// MUST be a singleton. A second copy of expo-router produced, on device,
+// "useLinkPreviewContext must be used within a LinkPreviewContextProvider"
+// on every render (UI phase 1): adding react-dom/react-native-web gave
+// expo-router a new peer set, pnpm created a second expo-router folder, and a
+// Metro that kept running across the install mixed both. Pinned here:
+//  - resolved from THIS APP: react, react-dom, expo-router, screens,
+//    safe-area-context, expo-linking, expo-constants (direct dependencies);
+//  - resolved from the app's expo-router: @react-navigation/* (expo-router's
+//    dependencies, not the app's — pnpm keeps them out of the app's node_modules).
+// `pnpm --filter @daktari/mobile check:bundle-duplicates` proves one copy each.
+// react-native itself is NOT pinned: Expo aliases it to react-native-web on web.
+const PINNED = /^(react|react-dom|expo-router|react-native-screens|react-native-safe-area-context|expo-linking|expo-constants)(\/.*)?$/;
+const NAVIGATION = /^@react-navigation\//;
+const routerOrigin = require.resolve('expo-router/package.json', { paths: [projectRoot] });
 
 // WEB ONLY (`npx expo start --web` — layout preview in a browser): native-only
 // modules resolve to stand-ins in src/web-stubs. Android/iOS never take this
@@ -42,6 +57,9 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   }
   if (PINNED.test(moduleName)) {
     return resolve({ ...context, originModulePath: appOrigin }, moduleName, platform);
+  }
+  if (NAVIGATION.test(moduleName)) {
+    return resolve({ ...context, originModulePath: routerOrigin }, moduleName, platform);
   }
   return resolve(context, moduleName, platform);
 };

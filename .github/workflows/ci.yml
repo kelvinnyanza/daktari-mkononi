@@ -48,6 +48,11 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # Real Android bundle → fails if react / expo-router / @react-navigation/*
+      # (or another context-holding singleton) is bundled twice.
+      - name: Mobile bundle has no duplicate singletons
+        run: pnpm --filter @daktari/mobile check:bundle-duplicates
+
   integration:
     name: Integration tests (Postgres 16)
     runs-on: ubuntu-24.04
