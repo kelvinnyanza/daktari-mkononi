@@ -151,6 +151,7 @@ export const sw = {
   // Records
   'records.title': 'Kumbukumbu za afya',
   'records.none': 'Huna kumbukumbu za afya bado',
+  'records.none.body': 'Baada ya mashauriano na daktari, muhtasari wake utaonekana hapa.',
 
   // Doctor placeholder
   'doctor.portal.title': 'Madaktari hutumia tovuti',
@@ -462,6 +463,7 @@ export const en: Record<TranslationKey, string> = {
 
   'records.title': 'Health records',
   'records.none': 'No health records yet',
+  'records.none.body': 'After a consultation with a doctor, its summary will appear here.',
 
   'weekday.0': 'Sun',
   'weekday.1': 'Mon',

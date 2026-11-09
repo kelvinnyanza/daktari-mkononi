@@ -1,55 +1,83 @@
 import { useQuery } from '@tanstack/react-query';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { RefreshControl } from 'react-native';
 import { router } from 'expo-router';
-import { Body, EmptyState, ErrorState, LoadingState, Screen, Title } from '../../../src/components/ui';
 import { useT } from '../../../src/i18n';
 import { eatDateTimeLabel } from '../../../src/lib/datetime';
 import { errorMessage } from '../../../src/lib/errors';
 import { recordsApi } from '../../../src/services/endpoints';
-import { colors, radius, spacing, typography } from '../../../src/theme/tokens';
+import { useTheme } from '../../../src/theme/theme';
+import {
+  Card,
+  EmptyState,
+  ErrorState,
+  Header,
+  IconTile,
+  ListItem,
+  Screen,
+  SkeletonGroup,
+  SkeletonListItem,
+  Text,
+} from '../../../src/ui';
 
 export default function Records(): React.JSX.Element {
   const t = useT();
+  const { colors } = useTheme();
   const query = useQuery({
     queryKey: ['records', 'me'],
     queryFn: () => recordsApi.listMine(),
   });
 
   return (
-    <Screen>
-      <Title>{t('records.title')}</Title>
+    <Screen
+      header={<Header title={t('records.title')} large />}
+      refreshControl={
+        <RefreshControl
+          refreshing={query.isRefetching}
+          onRefresh={() => void query.refetch()}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+    >
       {query.isPending ? (
-        <LoadingState />
+        <Card>
+          <SkeletonGroup>
+            <SkeletonListItem />
+            <SkeletonListItem />
+          </SkeletonGroup>
+        </Card>
       ) : query.isError ? (
-        <ErrorState message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <Card>
+          <ErrorState message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
+        </Card>
       ) : query.data.items.length === 0 ? (
-        <EmptyState message={t('records.none')} />
+        <Card>
+          <EmptyState
+            icon="file-text"
+            title={t('records.none')}
+            message={t('records.none.body')}
+            action={{ label: t('home.startScreening'), icon: 'message-circle', onPress: () => router.push('/(patient)/screening') }}
+          />
+        </Card>
       ) : (
-        query.data.items.map((record) => (
-          <Pressable
-            key={record.id}
-            accessibilityRole="button"
-            style={styles.card}
-            onPress={() =>
-              router.push({ pathname: '/(patient)/records/[id]', params: { id: record.id } })
-            }
-          >
-            <Text style={styles.cardTitle}>{record.title}</Text>
-            {record.summary !== null ? <Body muted>{record.summary}</Body> : null}
-            <Body muted>{eatDateTimeLabel(record.createdAt)}</Body>
-          </Pressable>
-        ))
+        <Card padded={false} style={{ overflow: 'hidden' }}>
+          {query.data.items.map((record, index) => (
+            <ListItem
+              key={record.id}
+              title={record.title}
+              {...(record.summary !== null ? { subtitle: record.summary } : {})}
+              leading={<IconTile icon={record.addendumToId !== null ? 'edit-3' : 'file-text'} />}
+              meta={
+                <Text variant="caption" tone="secondary">
+                  {eatDateTimeLabel(record.createdAt)}
+                </Text>
+              }
+              onPress={() => router.push({ pathname: '/(patient)/records/[id]', params: { id: record.id } })}
+              divider={index < query.data.items.length - 1}
+            />
+          ))}
+        </Card>
       )}
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  cardTitle: { ...typography.subtitle, color: colors.text },
-});
