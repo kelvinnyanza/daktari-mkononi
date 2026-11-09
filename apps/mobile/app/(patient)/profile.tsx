@@ -2,27 +2,35 @@ import { tzRegionSchema } from '@daktari/schemas';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import {
-  Body,
-  Button,
-  ChipRow,
-  ErrorState,
-  LoadingState,
-  Screen,
-  TextField,
-  Title,
-} from '../../src/components/ui';
+import { View } from 'react-native';
 import { useI18nStore, useT, type Locale } from '../../src/i18n';
 import { errorMessage } from '../../src/lib/errors';
+import { regionLabel } from '../../src/lib/labels';
 import { clearTokens } from '../../src/services/api';
 import { patientApi } from '../../src/services/endpoints';
 import { useAuthStore } from '../../src/stores/auth';
 import { DevStylePreviewEntry } from '../../src/components/dev-style-preview-entry';
+import { space, useTheme } from '../../src/theme/theme';
+import {
+  Banner,
+  Button,
+  Card,
+  ChipGroup,
+  ErrorState,
+  Header,
+  Icon,
+  Input,
+  Screen,
+  SkeletonCard,
+  SkeletonGroup,
+  Text,
+  type IconName,
+} from '../../src/ui';
 
 /** The 31-region enum straight from @daktari/schemas — one source of truth. */
 const REGION_OPTIONS = tzRegionSchema.options.map((region) => ({
   value: region,
-  label: region.replaceAll('_', ' '),
+  label: regionLabel(region),
 }));
 
 export default function Profile(): React.JSX.Element {
@@ -89,75 +97,84 @@ export default function Profile(): React.JSX.Element {
   };
 
   return (
-    <Screen>
-      <Title>{t('profile.title')}</Title>
-
-      <Body muted>{t('profile.language')}</Body>
-      <ChipRow
-        options={[
-          { value: 'sw', label: t('profile.language.sw') },
-          { value: 'en', label: t('profile.language.en') },
-        ]}
-        value={locale}
-        onChange={switchLocale}
-      />
+    <Screen header={<Header title={t('profile.title')} large />}>
+      <Card>
+        <Text variant="heading" accessibilityRole="header">
+          {t('profile.language')}
+        </Text>
+        <ChipGroup
+          options={[
+            { value: 'sw', label: t('profile.language.sw') },
+            { value: 'en', label: t('profile.language.en') },
+          ]}
+          value={locale}
+          onChange={switchLocale}
+        />
+      </Card>
 
       {query.isPending ? (
-        <LoadingState />
+        <SkeletonGroup>
+          <SkeletonCard />
+        </SkeletonGroup>
       ) : query.isError ? (
-        <ErrorState message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
+        <Card>
+          <ErrorState message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
+        </Card>
       ) : !editing ? (
-        <>
-          <Body muted>{t('profile.region')}</Body>
-          <Body>{query.data.region.replaceAll('_', ' ')}</Body>
-          <Body muted>{t('profile.district')}</Body>
-          <Body>{query.data.district}</Body>
+        <Card>
+          <ProfileRow icon="map" label={t('profile.region')} value={regionLabel(query.data.region)} />
+          <ProfileRow icon="map-pin" label={t('profile.district')} value={query.data.district} />
           {query.data.emergencyContact !== null ? (
-            <>
-              <Body muted>{t('profile.emergencyContact')}</Body>
-              <Body>
-                {query.data.emergencyContact.name} · {query.data.emergencyContact.phone}
-              </Body>
-            </>
+            <ProfileRow
+              icon="phone-call"
+              label={t('profile.emergencyContact')}
+              value={`${query.data.emergencyContact.name} · ${query.data.emergencyContact.phone}`}
+            />
           ) : null}
-          {notice !== null ? <Body muted>{notice}</Body> : null}
-          <Button label={t('profile.edit')} onPress={startEditing} />
-        </>
+          {notice !== null ? <Banner tone="success" message={notice} /> : null}
+          <Button variant="secondary" icon="edit-2" label={t('profile.edit')} onPress={startEditing} />
+        </Card>
       ) : (
-        <>
-          <Body muted>{t('profile.region')}</Body>
-          <ChipRow options={REGION_OPTIONS} value={region} onChange={setRegion} />
-          <TextField label={t('profile.district')} value={district} onChangeText={setDistrict} error={undefined} />
-          <TextField label={t('profile.ward')} value={ward} onChangeText={setWard} error={undefined} />
-          <TextField label={t('profile.street')} value={street} onChangeText={setStreet} error={undefined} />
-          <Body muted>{t('profile.emergencyContact')}</Body>
-          <TextField
+        <Card>
+          <Text variant="heading" accessibilityRole="header">
+            {t('profile.edit')}
+          </Text>
+          <Text variant="label">{t('profile.region')}</Text>
+          <ChipGroup options={REGION_OPTIONS} value={region} onChange={setRegion} />
+          <Input label={t('profile.district')} value={district} onChangeText={setDistrict} />
+          <Input label={t('profile.ward')} value={ward} onChangeText={setWard} />
+          <Input label={t('profile.street')} value={street} onChangeText={setStreet} />
+          <Text variant="heading" accessibilityRole="header">
+            {t('profile.emergencyContact')}
+          </Text>
+          <Input
             label={t('profile.emergencyContact.name')}
+            leadingIcon="user"
             value={contactName}
             onChangeText={setContactName}
-            error={undefined}
           />
-          <TextField
+          <Input
             label={t('profile.emergencyContact.phone')}
+            leadingIcon="phone"
             value={contactPhone}
             onChangeText={setContactPhone}
             keyboardType="phone-pad"
-            error={undefined}
           />
-          <TextField
+          <Input
             label={t('profile.emergencyContact.relationship')}
+            leadingIcon="users"
             value={contactRelationship}
             onChangeText={setContactRelationship}
-            error={undefined}
           />
-          {formError !== null ? <Body>{formError}</Body> : null}
-          <Button label={t('common.save')} onPress={() => save.mutate()} disabled={save.isPending} />
-          <Button label={t('common.cancel')} onPress={() => setEditing(false)} />
-        </>
+          {formError !== null ? <Banner tone="danger" message={formError} /> : null}
+          <Button icon="check" label={t('common.save')} onPress={() => save.mutate()} loading={save.isPending} />
+          <Button variant="ghost" label={t('common.cancel')} onPress={() => setEditing(false)} />
+        </Card>
       )}
 
       <Button
-        destructive
+        variant="secondary"
+        icon="log-out"
         label={t('auth.logout')}
         onPress={() => {
           void clearTokens().then(() => {
@@ -168,5 +185,20 @@ export default function Profile(): React.JSX.Element {
       />
       <DevStylePreviewEntry />
     </Screen>
+  );
+}
+
+function ProfileRow({ icon, label, value }: { icon: IconName; label: string; value: string }): React.JSX.Element {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', gap: space[3], alignItems: 'flex-start' }}>
+      <Icon name={icon} size={20} color={colors.textSecondary} />
+      <View style={{ flex: 1 }}>
+        <Text variant="caption" tone="secondary">
+          {label}
+        </Text>
+        <Text variant="bodyStrong">{value}</Text>
+      </View>
+    </View>
   );
 }
