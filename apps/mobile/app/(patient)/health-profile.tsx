@@ -53,6 +53,26 @@ import {
   Text,
 } from '../../src/ui';
 
+/** Which error slot each form input feeds. */
+const FIELD_OF_INPUT: Readonly<Record<keyof HealthFormState, HealthField>> = {
+  day: 'dateOfBirth',
+  month: 'dateOfBirth',
+  year: 'dateOfBirth',
+  sex: 'sex',
+  height: 'heightCm',
+  weight: 'weightKg',
+  region: 'region',
+  district: 'district',
+  bpHistory: 'bpHistory',
+  bloodGroup: 'lists',
+  allergies: 'lists',
+  chronicConditions: 'lists',
+  currentMedications: 'lists',
+  contactName: 'emergencyContact',
+  contactPhone: 'emergencyContact',
+  consent: 'consent',
+};
+
 const REGION_OPTIONS = tzRegionSchema.options.map((region) => ({ value: region, label: regionLabel(region) }));
 const BLOOD_OPTIONS = bloodTypeSchema.options.map((value) => ({ value, label: bloodTypeLabel(value) }));
 
@@ -79,8 +99,16 @@ export default function HealthProfileScreen(): React.JSX.Element {
     }
   }, [query.data]);
 
-  const set = <K extends keyof HealthFormState>(field: K, value: HealthFormState[K]): void =>
+  const set = <K extends keyof HealthFormState>(field: K, value: HealthFormState[K]): void => {
     setForm((current) => ({ ...current, [field]: value }));
+    // A corrected field drops its error right away (no stale red until the next Save).
+    const shownUnder = FIELD_OF_INPUT[field];
+    setErrors((current) => {
+      if (current[shownUnder] === undefined) return current;
+      const { [shownUnder]: _cleared, ...rest } = current;
+      return rest;
+    });
+  };
 
   const goHome = (): void => router.replace('/(patient)/home');
   const back = (): void => (router.canGoBack() ? router.back() : goHome());
@@ -120,8 +148,17 @@ export default function HealthProfileScreen(): React.JSX.Element {
   const footer = (
     <>
       {formError !== null ? <Banner tone="danger" message={formError} /> : null}
-      <Button label={t('health.save')} icon="check" onPress={submit} loading={save.isPending} testID="health-save" />
-      {onboarding ? <Button variant="ghost" label={t('health.later')} onPress={goHome} testID="health-later" /> : null}
+      {/* Side by side: a stacked pair would take a third of a small phone's height. */}
+      <View style={{ flexDirection: 'row', gap: space[3] }}>
+        {onboarding ? (
+          <View style={{ flex: 1 }}>
+            <Button variant="ghost" label={t('health.later')} onPress={goHome} testID="health-later" />
+          </View>
+        ) : null}
+        <View style={{ flex: 1.6 }}>
+          <Button label={t('health.save')} icon="check" onPress={submit} loading={save.isPending} testID="health-save" />
+        </View>
+      </View>
     </>
   );
 
@@ -163,7 +200,6 @@ export default function HealthProfileScreen(): React.JSX.Element {
                     value={form.day}
                     onChangeText={(text) => set('day', text.replace(/\D/g, '').slice(0, 2))}
                     keyboardType="number-pad"
-                    placeholder="12"
                     testID="health-dob-day"
                   />
                 </View>
@@ -173,7 +209,6 @@ export default function HealthProfileScreen(): React.JSX.Element {
                     value={form.month}
                     onChangeText={(text) => set('month', text.replace(/\D/g, '').slice(0, 2))}
                     keyboardType="number-pad"
-                    placeholder="4"
                     testID="health-dob-month"
                   />
                 </View>
@@ -183,7 +218,6 @@ export default function HealthProfileScreen(): React.JSX.Element {
                     value={form.year}
                     onChangeText={(text) => set('year', text.replace(/\D/g, '').slice(0, 4))}
                     keyboardType="number-pad"
-                    placeholder="1990"
                     testID="health-dob-year"
                   />
                 </View>
@@ -231,7 +265,6 @@ export default function HealthProfileScreen(): React.JSX.Element {
                   value={form.height}
                   onChangeText={(text) => set('height', text)}
                   keyboardType="decimal-pad"
-                  placeholder="165"
                   hint={t('health.height.hint')}
                   error={errors.heightCm}
                   testID="health-height"
@@ -244,7 +277,6 @@ export default function HealthProfileScreen(): React.JSX.Element {
                   value={form.weight}
                   onChangeText={(text) => set('weight', text)}
                   keyboardType="decimal-pad"
-                  placeholder="62"
                   hint={t('health.weight.hint')}
                   error={errors.weightKg}
                   testID="health-weight"

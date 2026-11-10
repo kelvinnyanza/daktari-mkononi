@@ -41,6 +41,13 @@ export default function Register(): React.JSX.Element {
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const clear = (field: Field): void =>
+    setErrors((current) => {
+      if (current[field] === undefined) return current;
+      const { [field]: _cleared, ...rest } = current;
+      return rest;
+    });
+
   const back = (): void => (router.canGoBack() ? router.back() : router.replace('/(auth)/login'));
 
   const submit = async (): Promise<void> => {
@@ -107,7 +114,10 @@ export default function Register(): React.JSX.Element {
         label={t('auth.register.fullName')}
         leadingIcon="user"
         value={fullName}
-        onChangeText={setFullName}
+        onChangeText={(text) => {
+          setFullName(text);
+          clear('fullName');
+        }}
         autoComplete="name"
         textContentType="name"
         autoCapitalize="words"
@@ -115,13 +125,22 @@ export default function Register(): React.JSX.Element {
         error={errors.fullName}
         testID="register-name"
       />
-      <PhoneInput label={t('auth.login.phone')} value={phone} onChangeDigits={setPhone} error={errors.phone} testID="register-phone" />
+      <PhoneInput label={t('auth.login.phone')} value={phone}
+        onChangeDigits={(digits) => {
+          setPhone(digits);
+          clear('phone');
+        }}
+        error={errors.phone}
+        testID="register-phone" />
       <View style={{ gap: space[2] }}>
         <PasswordInput
           label={t('auth.login.password')}
           leadingIcon="lock"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(text) => {
+            setPassword(text);
+            clear('password');
+          }}
           autoComplete="new-password"
           textContentType="newPassword"
           error={errors.password}
@@ -131,7 +150,10 @@ export default function Register(): React.JSX.Element {
       </View>
       <Checkbox
         checked={consent}
-        onChange={setConsent}
+        onChange={(value) => {
+          setConsent(value);
+          clear('consent');
+        }}
         label={t('auth.consent.label')}
         error={errors.consent}
         testID="register-consent"

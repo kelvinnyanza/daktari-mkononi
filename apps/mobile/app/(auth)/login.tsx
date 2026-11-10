@@ -90,12 +90,21 @@ export default function Login(): React.JSX.Element {
         </>
       }
     >
-      <PhoneInput label={t('auth.login.phone')} value={phone} onChangeDigits={setPhone} error={errors.phone} testID="login-phone" />
+      <PhoneInput label={t('auth.login.phone')} value={phone}
+        onChangeDigits={(digits) => {
+          setPhone(digits);
+          setErrors(({ phone: _cleared, ...rest }) => rest);
+        }}
+        error={errors.phone}
+        testID="login-phone" />
       <PasswordInput
         label={t('auth.login.password')}
         leadingIcon="lock"
         value={password}
-        onChangeText={setPassword}
+        onChangeText={(text) => {
+          setPassword(text);
+          setErrors(({ password: _cleared, ...rest }) => rest);
+        }}
         autoComplete="current-password"
         error={errors.password}
         onSubmitEditing={() => void submit()}

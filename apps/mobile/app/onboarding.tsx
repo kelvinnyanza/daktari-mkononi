@@ -70,6 +70,8 @@ function OnboardingPages(): React.JSX.Element {
   const last = index === SLIDES.length - 1;
   // The "Dharura" button floats above the dots + Endelea controls.
   const [controlsHeight, setControlsHeight] = useState(0);
+  // Horizontal list items don't stretch vertically: pages get the list's height.
+  const [listHeight, setListHeight] = useState(0);
   useEmergencyFabLift(controlsHeight);
 
   // Keep the current page in view when the window resizes (rotation, split screen).
@@ -123,8 +125,9 @@ function OnboardingPages(): React.JSX.Element {
           bounces={false}
           onMomentumScrollEnd={onScrollEnd}
           getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
-          renderItem={({ item }) => <Page slide={item} width={width} />}
+          renderItem={({ item }) => <Page slide={item} width={width} height={listHeight} />}
           style={styles.list}
+          onLayout={(event) => setListHeight(Math.round(event.nativeEvent.layout.height))}
         />
 
         <View style={styles.bottom} onLayout={(event) => setControlsHeight(Math.round(event.nativeEvent.layout.height))}>
@@ -144,7 +147,7 @@ function OnboardingPages(): React.JSX.Element {
   );
 }
 
-function Page({ slide, width }: { slide: Slide; width: number }): React.JSX.Element {
+function Page({ slide, width, height: pageHeight }: { slide: Slide; width: number; height: number }): React.JSX.Element {
   const t = useT();
   const styles = useStyles();
   const { height, fontScale } = useWindowDimensions();
@@ -153,16 +156,25 @@ function Page({ slide, width }: { slide: Slide; width: number }): React.JSX.Elem
 
   // Fixed frame sizes → no layout jump while the photo decodes.
   const column = Math.min(width - gutter * 2, 560);
-  const imageShare = fontScale > 1.3 ? 0.3 : 0.42;
+  const tablet = width >= layout.tabletBreakpoint;
+  const imageShare = fontScale > 1.3 ? 0.3 : tablet ? 0.52 : 0.42;
   const frame = landscape
     ? { width: Math.min((width - gutter * 3) * 0.45, height * 0.6), height: height * 0.6 }
     : { width: column, height: Math.min(column * 1.5, height * imageShare) };
 
   return (
-    <View style={[styles.page, { width, paddingHorizontal: gutter }, landscape && styles.pageLandscape]}>
+    <View
+      style={[
+        styles.page,
+        { width, paddingHorizontal: gutter },
+        pageHeight > 0 && { height: pageHeight },
+        tablet && styles.pageTablet,
+        landscape && styles.pageLandscape,
+      ]}
+    >
       <SlideImage slide={slide} width={frame.width} height={frame.height} />
       <ScrollView
-        style={landscape ? styles.copyLandscape : styles.copyPortrait}
+        style={landscape ? styles.copyLandscape : tablet ? styles.copyTablet : styles.copyPortrait}
         contentContainerStyle={[styles.copyContent, { maxWidth: column }]}
       >
         <Text variant="display" accessibilityRole="header">
@@ -234,6 +246,7 @@ const useStyles = createStyles((c) => ({
   },
   list: { flex: 1 },
   page: { flex: 1, alignItems: 'center', gap: space[5], paddingTop: space[2] },
+  pageTablet: { justifyContent: 'center', paddingBottom: space[8] },
   pageLandscape: { flexDirection: 'row', justifyContent: 'center', gap: space[8] },
   frame: {
     borderRadius: radius.xl,
@@ -257,6 +270,7 @@ const useStyles = createStyles((c) => ({
     justifyContent: 'center',
   },
   copyPortrait: { flex: 1, alignSelf: 'stretch' },
+  copyTablet: { flexGrow: 0, alignSelf: 'stretch' },
   copyLandscape: { flex: 1, maxWidth: 480, alignSelf: 'center' },
   copyContent: { gap: space[3], width: '100%', alignSelf: 'center', paddingBottom: space[4] },
   body: { fontSize: 17, lineHeight: 26 },
