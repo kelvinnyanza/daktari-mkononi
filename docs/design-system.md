@@ -143,7 +143,7 @@ It must never cover a key action (chat Send, booking/payment buttons, the tab ba
 - **Tab bar:** `TabBarHeightProbe` (the tabs' `tabBarBackground`) measures the bar; the button sits 16dp above it.
 - **Scroll content:** `Screen` adds `EMERGENCY_FAB_CLEARANCE` (92dp) of bottom padding, so the last button on any page scrolls clear of it. Lists outside `Screen` use `useEmergencyFabClearance()`.
 - **Bottom bars:** a screen with its own bar (sticky `Screen` footer via `onFooterLayout`, chat input + Send, call controls, onboarding controls) calls `useEmergencyFabLift(height)` (`src/ui/emergency-fab-lift.ts`). Lifts follow **focus**, not mount — tabs keep screens mounted.
-- **Overlays:** while a sheet or dialog is open (actions at the bottom/centre) the button moves to the top-right, still above the overlay and outside the subtree hidden from TalkBack. It hides only while its own emergency sheet is open.
+- **Overlays:** while a sheet or dialog is open (actions at the bottom/centre) the button moves to the top-right, still above the overlay and outside the subtree hidden from TalkBack. It hides only while its own emergency sheet is open and while the keyboard is open (typing — it would sit over the field), and returns as soon as the keyboard closes.
 
 ## Rules — do / don't
 

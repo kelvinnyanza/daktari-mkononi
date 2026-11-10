@@ -2,11 +2,12 @@ import { StatusBar } from 'expo-status-bar';
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type PropsWithChildren,
 } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Keyboard, Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createStyles, space } from '../theme/theme';
 import { EMERGENCY_FAB_SIZE, EmergencyFab, EmergencySheet } from './EmergencyFab';
@@ -46,8 +47,9 @@ export function useEmergencyFabClearance(): number {
  *    so buttons at the end of a page can always scroll clear of it;
  *  - while a sheet or dialog is open (their actions sit at the bottom/centre)
  *    it moves to the top-right corner, still above the overlay and tappable.
- * Tapping it opens the emergency sheet (112 / 115); it hides while that sheet
- * is open. Sheets and dialogs render in the OverlayHost of the body.
+ * Tapping it opens the emergency sheet (112 / 115). It hides only while that
+ * sheet is open and while the keyboard is open (typing — it would sit over the
+ * field being typed in); it comes back as soon as the keyboard closes. Sheets and dialogs render in the OverlayHost of the body.
  */
 export function EmergencyShell({ children }: PropsWithChildren): React.JSX.Element {
   const styles = useStyles();
@@ -56,6 +58,7 @@ export function EmergencyShell({ children }: PropsWithChildren): React.JSX.Eleme
   const [tabBarHeight, setTabBarHeight] = useState(0);
   const [covered, setCovered] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const keyboardOpen = useKeyboardOpen();
 
   const api = useMemo<ShellApi>(
     () => ({
@@ -87,7 +90,7 @@ export function EmergencyShell({ children }: PropsWithChildren): React.JSX.Eleme
             {children}
             <EmergencySheet visible={sheetOpen} onClose={() => setSheetOpen(false)} />
           </OverlayHost>
-          {sheetOpen ? null : (
+          {sheetOpen || keyboardOpen ? null : (
             <View
               pointerEvents="box-none"
               style={[styles.fabLayer, covered ? { top: space[2] } : { bottom }]}
@@ -99,6 +102,22 @@ export function EmergencyShell({ children }: PropsWithChildren): React.JSX.Eleme
       </View>
     </ShellContext.Provider>
   );
+}
+
+/** True while the software keyboard is shown (iOS: will-events, so it hides before the keyboard slides in). */
+function useKeyboardOpen(): boolean {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, () => setOpen(true));
+    const hide = Keyboard.addListener(hideEvent, () => setOpen(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return open;
 }
 
 const useStyles = createStyles((c) => ({

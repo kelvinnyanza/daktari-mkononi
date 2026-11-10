@@ -445,6 +445,8 @@ export const sw = {
   'emergency.fab.a11y': 'Dharura — fungua chaguo za kupiga 112 au 115',
   'emergency.sheet.title': 'Piga simu ya dharura',
   'emergency.sheet.line': 'Kama maisha yako au ya mtu mwingine yako hatarini, piga simu sasa hivi.',
+  // Legal draft tag
+  'legal.draftTag': 'RASIMU',
 } as const;
 
 export type TranslationKey = keyof typeof sw;
@@ -864,4 +866,6 @@ export const en: Record<TranslationKey, string> = {
   'emergency.fab.a11y': 'Emergency — open options to call 112 or 115',
   'emergency.sheet.title': 'Call for emergency help',
   'emergency.sheet.line': "If your life or someone else's is in danger, call now.",
+  // Legal draft tag
+  'legal.draftTag': 'DRAFT',
 } as const;

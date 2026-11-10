@@ -3,7 +3,7 @@
  * regress (press / disabled / loading, a11y labels and roles, emergency
  * colours and dial targets, Swahili status labels).
  */
-import { Linking, Modal, StyleSheet, TextInput } from 'react-native';
+import { Keyboard, Linking, Modal, StyleSheet, TextInput } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { useI18nStore } from '../i18n';
@@ -205,6 +205,22 @@ describe('Emergency UI', () => {
     expect(open).toHaveBeenNthCalledWith(2, 'tel:115');
     expect(textOf(tree)).not.toMatch(/999|911|114/);
     open.mockRestore();
+  });
+
+  it('hides while the keyboard is open and comes back when it closes', () => {
+    const listeners: Record<string, () => void> = {};
+    const spy = jest.spyOn(Keyboard, 'addListener').mockImplementation(((event: string, cb: () => void) => {
+      listeners[event] = cb;
+      return { remove: jest.fn() };
+    }) as never);
+    const tree = inShell(<RNTextProbe />);
+    expect(fabOf(tree)).toBeDefined();
+    // Android: keyboardDid*, iOS: keyboardWill* — fire whichever the shell listens to.
+    act(() => (listeners.keyboardDidShow ?? listeners.keyboardWillShow)?.());
+    expect(fabOf(tree)).toBeUndefined();
+    act(() => (listeners.keyboardDidHide ?? listeners.keyboardWillHide)?.());
+    expect(fabOf(tree)).toBeDefined();
+    spy.mockRestore();
   });
 
   it('sits bottom-right above content and overlays', () => {
