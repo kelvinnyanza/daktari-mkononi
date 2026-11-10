@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { dateOnlySchema, paginationSchema, tzPhoneSchema } from './common.js';
 
-export const genderSchema = z.enum(['MALE', 'FEMALE']);
+/** UNDISCLOSED = "Sipendi kusema" (prefer not to say) — a real answer, distinct from unset (null). */
+export const genderSchema = z.enum(['MALE', 'FEMALE', 'UNDISCLOSED']);
 export type Gender = z.infer<typeof genderSchema>;
 
 export const bloodTypeSchema = z.enum(['A_POS', 'A_NEG', 'B_POS', 'B_NEG', 'AB_POS', 'AB_NEG', 'O_POS', 'O_NEG']);

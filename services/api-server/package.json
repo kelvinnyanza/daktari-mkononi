@@ -10,7 +10,8 @@
     "lint": "eslint src tests --max-warnings 0",
     "test": "vitest run",
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "health:encrypt-backfill": "tsx src/scripts/health-encrypt-backfill.ts"
   },
   "dependencies": {
     "@daktari/ai": "workspace:*",

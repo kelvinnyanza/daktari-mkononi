@@ -25,7 +25,7 @@ import {
   TRIAGE_CHECK_SYSTEM_PROMPT,
   TURN_CAP_MESSAGE,
   buildScreeningSystemPrompt,
-  toAgeBand,
+  toPromptContext,
   type ScreeningLanguage,
 } from './prompts.js';
 
@@ -199,12 +199,8 @@ export class ScreeningService {
     }
 
     // 4. Conversational model call. Patient text goes ONLY into the user role.
-    const system = buildScreeningSystemPrompt(lang, {
-      ageBand: toAgeBand(patient.dateOfBirth, this.now()),
-      gender: patient.gender,
-      chronicConditions: patient.chronicConditions,
-      allergies: patient.allergies,
-    });
+    // Age band + sex only (if given) — never other profile fields (UI Phase 2).
+    const system = buildScreeningSystemPrompt(lang, toPromptContext(patient, this.now()));
     let replyText: string;
     let tokensThisTurn = 0;
     try {

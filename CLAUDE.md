@@ -133,6 +133,22 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
   `encryptedNotes` blob, chat messages in `encryptedBody`, medical-record
   detail in `encryptedContent` — all via `encryptHealthData`. Medical records
   are immutable; corrections are new records linked by `addendumToId`.
+- **Health profile (UI Phase 2):** patients are **18+ only** (no guardian-consent
+  flow; `MIN_PATIENT_AGE_YEARS` in `@daktari/schemas`, enforced on the health
+  profile and on any DOB sent at registration). Registration no longer
+  requires DOB/sex — they are collected in the health profile, so
+  `Patient.dateOfBirth`/`gender` are nullable (`UNDISCLOSED` = "Sipendi
+  kusema", null = not answered). Height, weight, BP history, blood group,
+  allergies, chronic conditions and medications live in ONE
+  `Patient.encryptedHealthProfile` blob (`encryptHealthData`); the old plaintext
+  columns are legacy (read only while a row has no blob, cleared on every
+  write, migrated by `pnpm --filter @daktari/api-server health:encrypt-backfill`,
+  to be dropped in a later migration). Saving requires explicit consent
+  (`consent: true`, stamped with `HEALTH_CONSENT_VERSION` and audited
+  `HEALTH_DATA_CONSENT_GIVEN`). **The AI provider gets age band + sex only**
+  (`toPromptContext` in `modules/ai/prompts.ts`) — never any other profile field.
+  The doctor sees the profile read-only in the consultation patient context
+  (age in years, never the DOB).
 - **Web portal API access (Phase 11):** the browser calls the API **directly**
   — there is no Next.js server proxy. A proxy cannot hold a per-user in-memory
   access token without inventing a server-side session store (the stateful

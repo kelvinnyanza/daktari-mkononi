@@ -6,8 +6,9 @@ export interface CreatePatientUserInput {
   passwordHash: string;
   fullName: string;
   language: Language;
-  dateOfBirth: Date;
-  gender: Gender;
+  /** Optional since UI Phase 2 — collected in the health profile. */
+  dateOfBirth: Date | null;
+  gender: Gender | null;
 }
 
 export interface CreateDoctorUserInput {

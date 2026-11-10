@@ -166,10 +166,14 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
     },
     now,
   );
-  const patientService = new PatientService({
-    patients: options.deps.patients,
-    users: options.deps.users,
-  });
+  const patientService = new PatientService(
+    {
+      patients: options.deps.patients,
+      users: options.deps.users,
+      auditLogs: options.deps.auditLogs,
+    },
+    now,
+  );
   const doctorService = new DoctorService(
     {
       doctors: options.deps.doctors,

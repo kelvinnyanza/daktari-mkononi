@@ -31,6 +31,27 @@ export const patientRepository = {
     return prisma.patient.update({ where: { id }, data });
   },
 
+  /**
+   * Backfill (UI Phase 2): rows that still hold plaintext health columns.
+   * Includes soft-deleted rows — they are still PHI at rest.
+   */
+  findWithLegacyHealthData(take: number): Promise<Patient[]> {
+    return prisma.patient.findMany({
+      where: {
+        OR: [
+          { bloodType: { not: null } },
+          { heightCm: { not: null } },
+          { weightKg: { not: null } },
+          { allergies: { isEmpty: false } },
+          { chronicConditions: { isEmpty: false } },
+          { currentMedications: { isEmpty: false } },
+        ],
+      },
+      orderBy: { id: 'asc' },
+      take,
+    });
+  },
+
   async list(filters: PatientListFilters): Promise<{ items: PatientWithUser[]; total: number }> {
     const where: Prisma.PatientWhereInput = {
       deletedAt: null,

@@ -45,8 +45,16 @@ interface ConsultationView {
 }
 
 interface PatientContext {
-  ageBand: string;
-  gender: string;
+  /** Age in years and band — the server never sends the date of birth. */
+  age: number | null;
+  ageBand: string | null;
+  /** MALE | FEMALE | UNDISCLOSED; null = not given (health profile skipped). */
+  gender: string | null;
+  heightCm: number | null;
+  weightKg: number | null;
+  /** NONE | YES_ON_MEDICATION | YES_NO_MEDICATION | UNKNOWN */
+  bpHistory: string | null;
+  /** A blood type, UNKNOWN ("Sijui"), or null. */
   bloodType: string | null;
   chronicConditions: string[];
   allergies: string[];
@@ -59,6 +67,33 @@ interface PatientContext {
 }
 
 const ICD10_PATTERN = /^[A-TV-Z]\d{2}(\.\d{1,2})?$/;
+
+type SexKey = 'male' | 'female' | 'undisclosed';
+function sexKey(gender: string): SexKey {
+  return gender === 'MALE' ? 'male' : gender === 'FEMALE' ? 'female' : 'undisclosed';
+}
+
+type BpKey = 'none' | 'treated' | 'untreated' | 'unknown';
+function bpKey(bp: string): BpKey {
+  switch (bp) {
+    case 'NONE':
+      return 'none';
+    case 'YES_ON_MEDICATION':
+      return 'treated';
+    case 'YES_NO_MEDICATION':
+      return 'untreated';
+    default:
+      return 'unknown';
+  }
+}
+
+/** O_POS → "O+", UNKNOWN → "Sijui"/"Doesn't know", null → "—". */
+function bloodTypeLabel(value: string | null, unknown: string): string {
+  if (value === null) return '—';
+  if (value === 'UNKNOWN') return unknown;
+  const [group, sign] = value.split('_');
+  return `${group ?? value}${sign === 'POS' ? '+' : sign === 'NEG' ? '−' : ''}`;
+}
 
 export default function ConsultationWorkspacePage() {
   const t = useT();
@@ -219,12 +254,41 @@ export default function ConsultationWorkspacePage() {
               <p className="text-destructive">{t('common.error')}</p>
             ) : (
               <>
-                {/* Age BAND, never the date of birth — the server never sends it. */}
-                <ContextRow label={t('consultation.ageBand')} value={context.data.ageBand} />
-                <ContextRow label={t('consultation.gender')} value={context.data.gender} />
+                {/* Read-only health profile. Age in years, never the date of birth —
+                    the server never sends it. "—" = the patient has not given it. */}
+                <ContextRow
+                  label={t('consultation.ageBand')}
+                  value={
+                    context.data.age === null
+                      ? '—'
+                      : t('consultation.ageYears', { years: String(context.data.age) })
+                  }
+                />
+                <ContextRow
+                  label={t('consultation.gender')}
+                  value={
+                    context.data.gender === null ? '—' : t(`consultation.sex.${sexKey(context.data.gender)}`)
+                  }
+                />
+                <ContextRow
+                  label={t('consultation.height')}
+                  value={context.data.heightCm === null ? '—' : `${context.data.heightCm} cm`}
+                />
+                <ContextRow
+                  label={t('consultation.weight')}
+                  value={context.data.weightKg === null ? '—' : `${context.data.weightKg} kg`}
+                />
+                <ContextRow
+                  label={t('consultation.bpHistory')}
+                  value={
+                    context.data.bpHistory === null
+                      ? '—'
+                      : t(`consultation.bp.${bpKey(context.data.bpHistory)}`)
+                  }
+                />
                 <ContextRow
                   label={t('consultation.bloodType')}
-                  value={context.data.bloodType ?? '—'}
+                  value={bloodTypeLabel(context.data.bloodType, t('consultation.bloodUnknown'))}
                 />
                 <ContextList
                   label={t('consultation.chronic')}

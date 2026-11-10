@@ -123,8 +123,8 @@ export class AuthService {
         passwordHash,
         fullName: input.fullName,
         language: input.language === 'en' ? 'EN' : 'SW',
-        dateOfBirth: input.dateOfBirth,
-        gender: input.gender,
+        dateOfBirth: input.dateOfBirth ?? null,
+        gender: input.gender ?? null,
       }),
     );
   }

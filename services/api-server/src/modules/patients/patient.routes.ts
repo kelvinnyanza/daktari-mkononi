@@ -1,5 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { idSchema, listPatientsQuerySchema, updatePatientProfileSchema } from '@daktari/schemas';
+import {
+  healthProfileInputSchema,
+  idSchema,
+  listPatientsQuerySchema,
+  updatePatientProfileSchema,
+} from '@daktari/schemas';
 import { z } from 'zod';
 import { authorize, makeAuthenticate } from '../../middleware/authenticate.js';
 import type { SessionRepoPort } from '../../lib/ports.js';
@@ -32,6 +37,25 @@ export function buildPatientRoutes(
       async (request) => {
         const input = updatePatientProfileSchema.parse(request.body);
         return service.updateOwnProfile(request.auth!.userId, input);
+      },
+    );
+
+    // Health profile (UI Phase 2): clinical fields encrypted at rest, PHI-audited.
+    app.get(
+      '/me/health-profile',
+      {
+        preHandler: [authenticate, authorize('patient:read:own')],
+        config: { audit: 'phi-read' },
+      },
+      async (request) => service.getOwnHealthProfile(request.auth!.userId),
+    );
+
+    app.put(
+      '/me/health-profile',
+      { preHandler: [authenticate, authorize('patient:update:own')] },
+      async (request) => {
+        const input = healthProfileInputSchema.parse(request.body);
+        return service.saveOwnHealthProfile(request.auth!.userId, input);
       },
     );
 

@@ -10,7 +10,7 @@ import { applyTestEnv } from './helpers/env.js';
 import { makeFakeDeps, type FakeDeps } from './helpers/fakes.js';
 import { SlidingWindowLimiter } from '../src/lib/rate-limiter.js';
 import { MESSAGES_PER_HOUR, ScreeningService } from '../src/modules/ai/screening.service.js';
-import { buildScreeningSystemPrompt, toAgeBand } from '../src/modules/ai/prompts.js';
+import { buildScreeningSystemPrompt, toPromptContext } from '../src/modules/ai/prompts.js';
 
 /**
  * ScreeningService over REAL provider adapters (SDK client stubbed), proving
@@ -200,12 +200,7 @@ describe('one source of truth for the system prompt', () => {
       await service.handleMessage(user.id, sessionId, 'Nina homa');
     }
 
-    const expected = buildScreeningSystemPrompt('sw', {
-      ageBand: toAgeBand(patient.dateOfBirth, NOW),
-      gender: patient.gender,
-      chronicConditions: patient.chronicConditions,
-      allergies: patient.allergies,
-    });
+    const expected = buildScreeningSystemPrompt('sw', toPromptContext(patient, NOW));
     const openaiSystem = calls[0]!.instructions as string;
     const fakeSystem = fakeSpy.mock.calls[0]![0].system;
     // Both providers get exactly the prompt prompts.ts builds — nothing provider-specific.

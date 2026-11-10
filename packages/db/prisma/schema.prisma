@@ -32,6 +32,7 @@ enum Language {
 enum Gender {
   MALE
   FEMALE
+  UNDISCLOSED // "Sipendi kusema" — answered, prefers not to say (null = not answered yet)
 }
 
 enum BloodType {
@@ -344,8 +345,14 @@ model Patient {
   userId                       String     @unique
   user                         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   patientNumber                String     @unique @default(cuid()) // platform-assigned, never patient-editable
-  dateOfBirth                  DateTime
-  gender                       Gender
+  // Collected in the health profile (UI Phase 2), not at registration: null
+  // until the patient saves it. 18+ enforced by @daktari/schemas.
+  dateOfBirth                  DateTime?
+  gender                       Gender?
+  // LEGACY plaintext health columns (bloodType … currentMedications): no
+  // longer written — the health profile lives in encryptedHealthProfile.
+  // Readers fall back to them only while a row has no blob; the backfill
+  // (api-server `health:encrypt-backfill`) moves them and clears them.
   bloodType                    BloodType?
   region                       String
   district                     String
@@ -362,6 +369,13 @@ model Patient {
   emergencyContactName         String?
   emergencyContactPhone        String?
   emergencyContactRelationship String?
+  // Health profile (height, weight, BP history, blood group, allergies,
+  // chronic conditions, medications) as ONE encryptHealthData v1 blob.
+  encryptedHealthProfile       String?
+  healthProfileUpdatedAt       DateTime?
+  // PDPA: explicit consent to store health information, with the wording version.
+  healthConsentAt              DateTime?
+  healthConsentVersion         String?
   createdAt                    DateTime   @default(now())
   updatedAt                    DateTime   @updatedAt
   deletedAt                    DateTime? // soft delete

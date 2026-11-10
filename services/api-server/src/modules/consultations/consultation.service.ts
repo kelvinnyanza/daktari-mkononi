@@ -1,5 +1,6 @@
 import type { Consultation, Diagnosis } from '@daktari/db';
 import { decryptHealthData, encryptHealthData } from '@daktari/encryption';
+import { ageInYears } from '@daktari/schemas';
 import type {
   AddDiagnosisInput as AddDiagnosisSchemaInput,
   ClinicalNotes,
@@ -19,6 +20,7 @@ import type {
   ScreeningRepoPort,
 } from '../../lib/ports.js';
 import { toAgeBand } from '../ai/prompts.js';
+import { readHealthProfile } from '../patients/health-profile.js';
 import { findAppointmentTransition } from '../appointments/appointment.machine.js';
 import type { MedicalRecordService } from '../medical-records/medical-record.service.js';
 
@@ -314,16 +316,25 @@ export class ConsultationService {
 
   /**
    * Patient clinical context for the doctor's workspace (Phase 11 portal):
-   * age BAND (never the date of birth), gender, chronic conditions, allergies,
-   * and the linked screening transcript when the booking came from triage.
-   * Assigned doctor only; PHI-audited.
+   * age in years and age band (never the date of birth itself), sex, and the
+   * health profile (UI Phase 2: height, weight, BP history, blood group,
+   * allergies, chronic conditions, medications — decrypted here, read-only),
+   * plus the linked screening transcript when the booking came from triage.
+   * Fields the patient has not given are null / empty. Assigned doctor only;
+   * PHI-audited.
    */
   async patientContext(
     doctorUserId: string,
     consultationId: string,
   ): Promise<{
-    ageBand: string;
-    gender: string;
+    age: number | null;
+    ageBand: string | null;
+    /** MALE | FEMALE | UNDISCLOSED, null when not given. */
+    gender: string | null;
+    heightCm: number | null;
+    weightKg: number | null;
+    bpHistory: string | null;
+    /** A blood type, UNKNOWN ("Sijui"), or null when not given. */
     bloodType: string | null;
     chronicConditions: string[];
     allergies: string[];
@@ -366,13 +377,18 @@ export class ConsultationService {
       patientId: patient.id,
     });
 
+    const health = readHealthProfile(patient);
     return {
-      ageBand: toAgeBand(patient.dateOfBirth, this.now()),
+      age: patient.dateOfBirth === null ? null : ageInYears(patient.dateOfBirth, this.now()),
+      ageBand: patient.dateOfBirth === null ? null : toAgeBand(patient.dateOfBirth, this.now()),
       gender: patient.gender,
-      bloodType: patient.bloodType,
-      chronicConditions: patient.chronicConditions,
-      allergies: patient.allergies,
-      currentMedications: patient.currentMedications,
+      heightCm: health.heightCm,
+      weightKg: health.weightKg,
+      bpHistory: health.bpHistory,
+      bloodType: health.bloodGroup,
+      chronicConditions: health.chronicConditions,
+      allergies: health.allergies,
+      currentMedications: health.currentMedications,
       screening,
     };
   }

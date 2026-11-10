@@ -440,3 +440,49 @@ describe('medical record access rules', () => {
     expect(list.items[0]).not.toHaveProperty('content');
   });
 });
+
+describe('patient context for the doctor (UI Phase 2 health profile)', () => {
+  it('shows the decrypted health profile read-only, age in years (never the DOB), audited', async () => {
+    const { doctorUser, patient, consultationId } = await startedConsultation();
+    const { PatientService } = await import('../src/modules/patients/patient.service.js');
+    const { healthProfileInputSchema } = await import('@daktari/schemas');
+    const patients = new PatientService(deps, () => clock.now);
+    await patients.saveOwnHealthProfile(
+      patient.userId,
+      healthProfileInputSchema.parse({
+        dateOfBirth: '1990-04-12',
+        sex: 'UNDISCLOSED',
+        heightCm: 172,
+        weightKg: 80,
+        region: 'DODOMA',
+        district: 'Dodoma Mjini',
+        bpHistory: 'YES_NO_MEDICATION',
+        bloodGroup: 'UNKNOWN',
+        allergies: ['penicillin'],
+        consent: true,
+      }),
+    );
+
+    const context = await consultations.patientContext(doctorUser.id, consultationId);
+    expect(context).toMatchObject({
+      age: 36,
+      ageBand: '30-44',
+      gender: 'UNDISCLOSED',
+      heightCm: 172,
+      weightKg: 80,
+      bpHistory: 'YES_NO_MEDICATION',
+      bloodType: 'UNKNOWN',
+      allergies: ['penicillin'],
+      chronicConditions: [],
+    });
+    expect(JSON.stringify(context)).not.toContain('1990-04-12');
+    expect(deps.state.auditEntries.some((entry) => entry.action === 'PATIENT_CONTEXT_VIEWED')).toBe(true);
+  });
+
+  it('a patient who skipped the health profile shows nulls, not errors', async () => {
+    const { doctorUser, patient, consultationId } = await startedConsultation();
+    deps.state.patients.set(patient.id, { ...deps.state.patients.get(patient.id)!, dateOfBirth: null, gender: null });
+    const context = await consultations.patientContext(doctorUser.id, consultationId);
+    expect(context).toMatchObject({ age: null, ageBand: null, gender: null, heightCm: null, bpHistory: null });
+  });
+});

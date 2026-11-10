@@ -32,6 +32,9 @@ function prismaEnum(name: string): string[] {
 
 const FAMILIES: Record<string, readonly string[]> = {
   'consultation.': NOTE_FIELDS,
+  // Health profile panel (UI Phase 2) — sexKey() / bpKey() in the consultation page.
+  'consultation.sex.': ['male', 'female', 'undisclosed'],
+  'consultation.bp.': ['none', 'treated', 'untreated', 'unknown'],
   'payments.review.reason.': prismaEnum('PaymentReviewReason'),
   'payouts.reason.': ['OK', 'NO_ACCOUNT', 'ACCOUNT_NOT_VERIFIED', 'BELOW_MINIMUM'],
   'payouts.runStatus.': prismaEnum('PayoutBatchStatus'),

@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { dateOnlySchema, languageSchema, tzPhoneSchema } from './common.js';
+import { languageSchema, tzPhoneSchema } from './common.js';
+import { adultDateOfBirthSchema } from './health-profile.schema.js';
 import { genderSchema } from './patient.schema.js';
 
 export const passwordSchema = z
@@ -36,18 +37,18 @@ export const otpPurposeSchema = z.enum([
 ]);
 export type OtpPurpose = z.infer<typeof otpPurposeSchema>;
 
-/** Patient self-registration (POST /api/v1/auth/register). */
+/**
+ * Patient self-registration (POST /api/v1/auth/register).
+ * UI Phase 2: date of birth and sex moved to the health profile, so both are
+ * OPTIONAL here (older app builds still send them and keep working). When a
+ * date of birth is sent it must be an adult's (MIN_PATIENT_AGE_YEARS).
+ */
 export const patientRegistrationSchema = z.object({
   phone: tzPhoneSchema,
   password: passwordSchema,
   fullName: z.string().trim().min(2).max(120),
-  dateOfBirth: dateOnlySchema
-    .refine((date) => date.getTime() < Date.now(), 'date of birth must be in the past')
-    .refine(
-      (date) => date.getTime() > Date.parse('1900-01-01T00:00:00.000Z'),
-      'date of birth is unrealistically old',
-    ),
-  gender: genderSchema,
+  dateOfBirth: adultDateOfBirthSchema().optional(),
+  gender: genderSchema.optional(),
   language: languageSchema,
 });
 export type PatientRegistrationInput = z.infer<typeof patientRegistrationSchema>;
