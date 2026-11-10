@@ -15,8 +15,9 @@ export const authApi = {
     phone: string;
     password: string;
     fullName: string;
-    dateOfBirth: string;
-    gender: 'MALE' | 'FEMALE';
+    /** Optional since UI Phase 2 — collected in the health profile. */
+    dateOfBirth?: string;
+    gender?: 'MALE' | 'FEMALE' | 'UNDISCLOSED';
     language: 'sw' | 'en';
   }) =>
     apiRequest<{ message: BilingualMessage }>('/api/v1/auth/register', {

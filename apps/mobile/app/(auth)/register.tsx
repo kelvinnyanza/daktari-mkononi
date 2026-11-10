@@ -43,7 +43,7 @@ export default function Register(): React.JSX.Element {
         password,
         fullName: validated.data.fullName,
         dateOfBirth,
-        gender: validated.data.gender,
+        ...(validated.data.gender !== undefined ? { gender: validated.data.gender } : {}),
         language: locale,
       });
       // Anti-enumeration: the same generic message either way; proceed to OTP.

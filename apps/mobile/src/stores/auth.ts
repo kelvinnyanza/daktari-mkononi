@@ -5,6 +5,7 @@
  * SecureStore key touched exclusively by the API layer.
  */
 import * as SecureStore from 'expo-secure-store';
+import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 
@@ -45,3 +46,20 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 );
+
+/**
+ * True once the persisted auth flags have been read from SecureStore (async).
+ * Before that, `isAuthenticated` is the initial `false` — routing on it would
+ * send a signed-in patient to login on every cold start.
+ */
+export function useAuthHydrated(): boolean {
+  const [hydrated, setHydrated] = useState(() => useAuthStore.persist.hasHydrated());
+  useEffect(() => {
+    if (hydrated) return;
+    const unsubscribe = useAuthStore.persist.onFinishHydration(() => setHydrated(true));
+    // Hydration may have finished between the first render and this effect.
+    if (useAuthStore.persist.hasHydrated()) setHydrated(true);
+    return unsubscribe;
+  }, [hydrated]);
+  return hydrated;
+}

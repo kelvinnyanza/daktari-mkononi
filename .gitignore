@@ -40,3 +40,6 @@ apps/mobile/ios/
 apps/mobile/.expo/
 # smoke:check compiles @daktari/ai here (never dist/, which the dev API watches)
 packages/ai/.smoke-dist/
+
+# Onboarding photo originals (multi-MB); the optimised copies are committed.
+apps/mobile/assets/onboarding/source/
