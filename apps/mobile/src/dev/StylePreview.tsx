@@ -22,7 +22,7 @@ import {
   Card,
   ChipGroup,
   EmergencyCallCard,
-  EmergencyStrip,
+  EmergencyFab,
   EmptyState,
   ErrorState,
   Header,
@@ -440,7 +440,10 @@ function IconTile({ icon }: { icon: IconName }): React.JSX.Element {
 function BannerSection({ c }: { c: PreviewCopy }): React.JSX.Element {
   return (
     <Section title={<SectionTitle>{c.sBanners}</SectionTitle>}>
-      <EmergencyStrip />
+      {/* The floating "Dharura" button (in the app it floats bottom-right on every screen). */}
+      <View style={{ alignItems: 'flex-end' }}>
+        <EmergencyFab onPress={noop} />
+      </View>
       <Banner tone="info" title={c.bannerInfoTitle} message={c.bannerInfo} />
       <Banner tone="success" message={c.bannerSuccess} />
       <Banner tone="warning" title={c.bannerWarningTitle} message={c.bannerWarning} />
@@ -588,7 +591,6 @@ function MockBody({ children }: PropsWithChildren): React.JSX.Element {
 function HomeMock({ c }: { c: PreviewCopy }): React.JSX.Element {
   return (
     <>
-      <EmergencyStrip />
       <View style={{ paddingHorizontal: layout.gutterPhone, paddingTop: space[4] }}>
         <Logo size="sm" />
       </View>

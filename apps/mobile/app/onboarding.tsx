@@ -28,6 +28,7 @@ import type { TranslationKey } from '../src/i18n/translations';
 import { markOnboardingSeen } from '../src/lib/onboarding';
 import { createStyles, layout, radius, space, useTheme } from '../src/theme/theme';
 import { Button, EmergencyShell, Icon, LogoMark, Text, type IconName } from '../src/ui';
+import { useEmergencyFabLift } from '../src/ui/emergency-fab-lift';
 
 interface Slide {
   key: '1' | '2' | '3' | '4';
@@ -52,6 +53,14 @@ const SLIDES: readonly Slide[] = [
 const key = (slide: Slide, part: 'title' | 'body' | 'alt'): TranslationKey => `onboarding.${slide.key}.${part}`;
 
 export default function Onboarding(): React.JSX.Element {
+  return (
+    <EmergencyShell>
+      <OnboardingPages />
+    </EmergencyShell>
+  );
+}
+
+function OnboardingPages(): React.JSX.Element {
   const t = useT();
   const router = useRouter();
   const styles = useStyles();
@@ -59,6 +68,9 @@ export default function Onboarding(): React.JSX.Element {
   const listRef = useRef<FlatList<Slide>>(null);
   const [index, setIndex] = useState(0);
   const last = index === SLIDES.length - 1;
+  // The "Dharura" button floats above the dots + Endelea controls.
+  const [controlsHeight, setControlsHeight] = useState(0);
+  useEmergencyFabLift(controlsHeight);
 
   // Keep the current page in view when the window resizes (rotation, split screen).
   useEffect(() => {
@@ -87,8 +99,7 @@ export default function Onboarding(): React.JSX.Element {
   };
 
   return (
-    <EmergencyShell>
-      <SafeAreaView style={styles.root} edges={['left', 'right', 'bottom']}>
+    <SafeAreaView style={styles.root} edges={['left', 'right', 'bottom']}>
         <View style={styles.topBar}>
           <LogoMark size={32} />
           <Button
@@ -116,7 +127,7 @@ export default function Onboarding(): React.JSX.Element {
           style={styles.list}
         />
 
-        <View style={styles.bottom}>
+        <View style={styles.bottom} onLayout={(event) => setControlsHeight(Math.round(event.nativeEvent.layout.height))}>
           <View style={styles.bottomInner}>
             <Dots count={SLIDES.length} index={index} label={t('onboarding.progress', { page: index + 1, pages: SLIDES.length })} />
             {last ? (
@@ -129,8 +140,7 @@ export default function Onboarding(): React.JSX.Element {
             )}
           </View>
         </View>
-      </SafeAreaView>
-    </EmergencyShell>
+    </SafeAreaView>
   );
 }
 

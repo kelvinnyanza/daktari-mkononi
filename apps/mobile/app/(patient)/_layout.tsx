@@ -2,7 +2,7 @@ import { Tabs } from 'expo-router';
 import { useT } from '../../src/i18n';
 import { fontFamily } from '../../src/theme/fonts';
 import { useTheme } from '../../src/theme/theme';
-import { EmergencyShell, Icon, type IconName } from '../../src/ui';
+import { EmergencyShell, Icon, TabBarHeightProbe, type IconName } from '../../src/ui';
 
 function tabIcon(name: IconName) {
   return function TabIcon({ color }: { color: string }): React.JSX.Element {
@@ -24,6 +24,8 @@ export default function PatientLayout(): React.JSX.Element {
           tabBarLabelStyle: { fontFamily: fontFamily.semibold, fontSize: 12 },
           tabBarItemStyle: { paddingVertical: 4 },
           sceneStyle: { backgroundColor: colors.background },
+          // Measures the bar so the emergency button floats just above it.
+          tabBarBackground: () => <TabBarHeightProbe />,
         }}
       >
         <Tabs.Screen name="home" options={{ title: t('tabs.home'), tabBarIcon: tabIcon('home') }} />

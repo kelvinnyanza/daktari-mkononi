@@ -440,6 +440,11 @@ export const sw = {
   'health.summary.none': 'Bado hujajaza wasifu wako wa afya.',
   'health.summary.edit': 'Hariri wasifu wa afya',
   'health.summary.fill': 'Jaza wasifu wa afya',
+  // Emergency button + sheet (UI Phase 2)
+  'emergency.fab.label': 'Dharura',
+  'emergency.fab.a11y': 'Dharura — fungua chaguo za kupiga 112 au 115',
+  'emergency.sheet.title': 'Piga simu ya dharura',
+  'emergency.sheet.line': 'Kama maisha yako au ya mtu mwingine yako hatarini, piga simu sasa hivi.',
 } as const;
 
 export type TranslationKey = keyof typeof sw;
@@ -854,4 +859,9 @@ export const en: Record<TranslationKey, string> = {
   'health.summary.none': "You haven't filled in your health profile yet.",
   'health.summary.edit': 'Edit health profile',
   'health.summary.fill': 'Fill in health profile',
+  // Emergency button + sheet (UI Phase 2)
+  'emergency.fab.label': 'Emergency',
+  'emergency.fab.a11y': 'Emergency — open options to call 112 or 115',
+  'emergency.sheet.title': 'Call for emergency help',
+  'emergency.sheet.line': "If your life or someone else's is in danger, call now.",
 } as const;

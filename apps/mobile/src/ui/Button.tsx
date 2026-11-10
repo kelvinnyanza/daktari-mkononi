@@ -37,7 +37,7 @@ function foreground(variant: ButtonVariant, colors: ThemeColors): string {
 /**
  * One primary action per screen. `danger` is for destructive actions only
  * (cancel booking) and is OUTLINED red: solid red is reserved for 112/115
- * (EmergencyStrip / EmergencyCallCard), never a Button.
+ * (the "Dharura" button, its sheet, EmergencyCallCard), never a Button.
  */
 export function Button({
   label,

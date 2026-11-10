@@ -34,6 +34,7 @@ import {
 } from '../../src/lib/health-profile';
 import { bloodTypeLabel, regionLabel } from '../../src/lib/labels';
 import { patientApi } from '../../src/services/endpoints';
+import { useEmergencyFabLift } from '../../src/ui/emergency-fab-lift';
 import { space } from '../../src/theme/theme';
 import {
   Banner,
@@ -67,6 +68,9 @@ export default function HealthProfileScreen(): React.JSX.Element {
   const [errors, setErrors] = useState<Partial<Record<HealthField, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const initialised = useRef(false);
+  // Keep the "Dharura" button above the sticky Hifadhi / Baadaye footer.
+  const [footerHeight, setFooterHeight] = useState(0);
+  useEmergencyFabLift(footerHeight);
 
   useEffect(() => {
     if (query.data !== undefined && !initialised.current) {
@@ -131,6 +135,7 @@ export default function HealthProfileScreen(): React.JSX.Element {
         />
       }
       footer={query.isSuccess ? footer : undefined}
+      onFooterLayout={setFooterHeight}
     >
       <Text tone="secondary">{t('health.intro')}</Text>
 

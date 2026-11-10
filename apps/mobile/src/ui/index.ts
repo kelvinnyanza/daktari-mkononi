@@ -4,7 +4,7 @@
  * Preview (dev builds only): daktari://dev/style-preview
  */
 export { Avatar, initials } from './Avatar';
-export { Banner, EmergencyCallCard, EmergencyStrip, type BannerTone } from './Banner';
+export { Banner, EmergencyCallCard, type BannerTone } from './Banner';
 export { BottomSheet } from './BottomSheet';
 export { Button, type ButtonProps, type ButtonVariant } from './Button';
 export { Card } from './Card';
@@ -24,7 +24,13 @@ export { OverlayHost, useHasOverlayHost, useOverlay } from './OverlayHost';
 export { Screen, Section, Stack, useResponsive } from './Screen';
 export { SelectField } from './SelectField';
 export { Skeleton, SkeletonCard, SkeletonGroup, SkeletonListItem } from './Skeleton';
-export { EmergencyShell } from './EmergencyShell';
+export {
+  EMERGENCY_FAB_CLEARANCE,
+  EmergencyShell,
+  TabBarHeightProbe,
+  useEmergencyFabClearance,
+} from './EmergencyShell';
+export { EmergencyFab, EmergencySheet } from './EmergencyFab';
 export { EmptyState, ErrorState, LoadingState } from './States';
 export {
   APPOINTMENT_STATUS_STYLE,

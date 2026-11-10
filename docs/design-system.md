@@ -62,7 +62,7 @@ object rather than a screen-by-screen rewrite. `theme.test.ts` checks every pair
 | **emergency** | `#B91C1C` + white | **112 / 115 only** | 6.5:1 |
 
 **Emergency rule:** 112/115 always uses the solid `emergencyBg` with white
-bold text (`EmergencyStrip`, `EmergencyCallCard`). It is a separate role from
+bold text (the floating "Dharura" button, its sheet, `EmergencyCallCard`). It is a separate role from
 `danger`, so softening error styling can never soften the emergency UI. A dark
 theme must keep these values. Never use 999, 911 or 114.
 
@@ -117,7 +117,11 @@ own family.
 | `Button` | `primary` · `secondary` (tonal) · `ghost` · `danger` (**outlined** red, destructive only — solid red is reserved for 112/115); `size md/sm`; `icon`; `loading` (spinner, label kept, presses blocked); `disabled`. Full width by default. Labels wrap. |
 | `IconButton` | 48×48; **`accessibilityLabel` is required by type**. Pass a `t()` string so it is read in Swahili or English. |
 | `Card` | `tone default/muted/primary`; with `onPress` it becomes one tap target (then pass `accessibilityLabel`). |
-| `Input` | visible label above, `hint` below, `error` replaces the hint (red border + icon, announced politely), `leadingIcon`, `disabled`. No jump between states. |
+| `Input` | visible label above, `hint` below, `error` replaces the hint (red border + icon, announced politely), `leadingIcon`, `prefix` (fixed text such as "+255"), `disabled`. No jump between states. |
+| `PhoneInput` | Tanzanian number: fixed `+255` prefix, 9 local digits shown "712 345 678", format hint; typed/pasted 0…/255…/+255… normalised (`src/lib/phone.ts`: `toE164`). |
+| `PasswordInput`, `PasswordStrength` | show/hide toggle; registration adds the server rules as a live checklist and a three-step meter **named in words**. |
+| `Checkbox` | consent rows: whole row toggles (≥ 48dp), 24dp box, announced error; related links go in `below` as real buttons. |
+| `SelectField` | one choice from a long list (31 regions): Input-styled trigger + `BottomSheet` list. Short lists stay `ChipGroup`. |
 | `ListItem` | leading · title/subtitle · `meta` (pills, price; wraps) · trailing · chevron. ≥ 64dp tall. |
 | `Badge`, `AppointmentStatusPill`, `PaymentStatusPill` | icon + text; status is never shown by colour alone. Status→tone mapping is defined once (`APPOINTMENT_STATUS_STYLE`, `PAYMENT_STATUS_STYLE`). |
 | `Avatar` | initials (honorifics dropped), stable calm tint per name, decorative. No photos. |
@@ -126,10 +130,20 @@ own family.
 | `ErrorState` | `kind="offline"` → "Hakuna mtandao" + retry; `kind="error"` → generic or the API's bilingual message. |
 | `Skeleton*` | one shared native-driver pulse; static when "remove animations" is on; hidden for the first 150ms; announced once via `SkeletonGroup`. |
 | `Banner` | `info/success/warning/danger`, optional title and action. |
-| `EmergencyStrip`, `EmergencyCallCard` | solid red; the card has "Piga 112" / "Piga 115" call buttons (`tel:`). |
-| `BottomSheet`, `ConfirmDialog` | Rendered in the `OverlayHost` inside `EmergencyShell`, **below the emergency strip** — never RN `Modal`/`Alert` inside the shells (they would dim 112/115). One 220ms slide; closes on backdrop, close button and Android back; capped width on tablets. Use `ConfirmDialog` before destructive actions. |
+| `EmergencyShell` → `EmergencyFab` + `EmergencySheet` | every patient-facing stack (onboarding, auth, patient tabs, legal). A round red **"Dharura"** button (60dp, phone icon + label, white ring) floats bottom-right **above content, the tab bar and every overlay**. Tap → sheet with one safety line and two big solid-red buttons "Piga 112" / "Piga 115" (`tel:` — dialer filled in, never auto-call). See *Emergency button placement* below. |
+| `EmergencyCallCard` | solid red block with "Piga 112" / "Piga 115" (`tel:`) — screening red flags and the AI emergency screen (unchanged). |
+| `BottomSheet`, `ConfirmDialog` | Rendered in the `OverlayHost` inside `EmergencyShell`, **under the emergency button** — never RN `Modal`/`Alert` inside the shells (they would dim 112/115). One 220ms slide; closes on backdrop, close button and Android back; capped width on tablets. Use `ConfirmDialog` before destructive actions. |
 | `Logo`, `LogoMark` | see Brand. |
 | `Icon` | Feather line icons (`@expo/vector-icons`, 56 KB font, preloaded). Decorative and hidden from screen readers. |
+
+### Emergency button placement
+
+It must never cover a key action (chat Send, booking/payment buttons, the tab bar):
+
+- **Tab bar:** `TabBarHeightProbe` (the tabs' `tabBarBackground`) measures the bar; the button sits 16dp above it.
+- **Scroll content:** `Screen` adds `EMERGENCY_FAB_CLEARANCE` (92dp) of bottom padding, so the last button on any page scrolls clear of it. Lists outside `Screen` use `useEmergencyFabClearance()`.
+- **Bottom bars:** a screen with its own bar (sticky `Screen` footer via `onFooterLayout`, chat input + Send, call controls, onboarding controls) calls `useEmergencyFabLift(height)` (`src/ui/emergency-fab-lift.ts`). Lifts follow **focus**, not mount — tabs keep screens mounted.
+- **Overlays:** while a sheet or dialog is open (actions at the bottom/centre) the button moves to the top-right, still above the overlay and outside the subtree hidden from TalkBack. It hides only while its own emergency sheet is open.
 
 ## Rules — do / don't
 
@@ -149,12 +163,15 @@ own family.
 - Don't use `maxFontSizeMultiplier` on content text. (The logotype and
   initials avatars are fixed artwork; the text beside them scales.)
 - Don't restyle, tint or soften 112/115 emergency UI, and don't use
-  `danger` for it. Nothing may cover or dim the strip: no `Modal`/`Alert`
+  `danger` for it. Nothing may cover or dim the "Dharura" button: no `Modal`/`Alert`
   inside the shells — use `BottomSheet` / `ConfirmDialog`.
 - Don't use solid red for anything but emergency (destructive = outlined).
 - Don't add animation libraries. Use subtle `Animated` with the native driver
   only, and respect "remove animations".
-- Don't use photos of people or stock imagery.
+- Don't use photos of people or stock imagery — except the four onboarding photos
+  (supplied by the product owner; optimised by `pnpm --filter @daktari/mobile onboarding:images`,
+  originals git-ignored in `assets/onboarding/source/`). Each has a description and a
+  calm design-system placeholder if it fails to load.
 
 ## Accessibility checklist (per screen)
 

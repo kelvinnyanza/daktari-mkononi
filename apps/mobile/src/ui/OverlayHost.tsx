@@ -2,11 +2,12 @@
  * In-tree overlay layer for bottom sheets and dialogs.
  *
  * Why not RN <Modal> / Alert: both draw over the WHOLE window, so the 112/115
- * emergency strip would be dimmed and unreachable while a sheet is open. The
- * host lives INSIDE EmergencyShell's body (below the strip): overlays cover
- * the screen and tab bar but never the strip, which stays on top, full red and
+ * emergency button would be dimmed and unreachable while a sheet is open. The
+ * host lives INSIDE EmergencyShell's body: overlays cover the screen and tab
+ * bar, and the shell draws the "Dharura" button above them (moved to the
+ * top-right while an overlay is open — onCoveredChange), full red and
  * tappable. While an overlay is open, the screen underneath is hidden from
- * screen readers; the strip is not.
+ * screen readers; the button is not.
  *
  * Overlay content is rendered at the host's position in the tree: it gets the
  * app-wide providers (query client, theme, i18n), not the screen's navigator —
@@ -18,6 +19,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
   type ReactNode,
@@ -31,7 +33,10 @@ interface OverlayApi {
 
 const OverlayContext = createContext<OverlayApi | null>(null);
 
-export function OverlayHost({ children }: PropsWithChildren): React.JSX.Element {
+export function OverlayHost({
+  children,
+  onCoveredChange,
+}: PropsWithChildren<{ onCoveredChange?: (covered: boolean) => void }>): React.JSX.Element {
   const [layers, setLayers] = useState<ReadonlyArray<{ id: string; node: ReactNode }>>([]);
   const api = useMemo<OverlayApi>(
     () => ({
@@ -46,6 +51,11 @@ export function OverlayHost({ children }: PropsWithChildren): React.JSX.Element 
     [],
   );
   const covered = layers.length > 0;
+  const coveredRef = useRef(onCoveredChange);
+  coveredRef.current = onCoveredChange;
+  useEffect(() => {
+    coveredRef.current?.(covered);
+  }, [covered]);
   return (
     <OverlayContext.Provider value={api}>
       <View

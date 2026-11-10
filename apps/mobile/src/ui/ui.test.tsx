@@ -19,8 +19,8 @@ import {
   ChipGroup,
   ConfirmDialog,
   EmergencyCallCard,
+  EmergencyFab,
   EmergencyShell,
-  EmergencyStrip,
   EmptyState,
   ErrorState,
   Header,
@@ -150,24 +150,69 @@ describe('Status pills', () => {
   });
 });
 
-describe('Emergency UI', () => {
-  it('strip: solid emergency red and two dial buttons 112 / 115', () => {
-    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-    const tree = render(<EmergencyStrip />);
-    const strip = tree.root.findAll((n) => flatStyle(n).backgroundColor === lightColors.emergencyBg);
-    expect(strip.length).toBeGreaterThan(0);
-    expect(lightColors.emergencyBg).toBe('#B91C1C');
+/** The shell inside a SafeAreaProvider (the shell reads insets). */
+function inShell(children?: React.ReactNode): ReactTestRenderer {
+  return render(
+    <SafeAreaProvider initialMetrics={METRICS}>
+      <EmergencyShell>{children}</EmergencyShell>
+    </SafeAreaProvider>,
+  );
+}
 
-    const buttons = pressables(tree);
-    expect(buttons.map((b) => b.props.accessibilityLabel)).toEqual([
+function fabOf(tree: ReactTestRenderer): ReactTestInstance | undefined {
+  return pressables(tree).find((p) => p.props.testID === 'emergency-fab');
+}
+
+/** Absolute-positioned wrapper the shell places the button in. */
+function fabLayerStyle(tree: ReactTestRenderer): Record<string, unknown> {
+  let node: ReactTestInstance | null = fabOf(tree)!;
+  while (node !== null && flatStyle(node).position !== 'absolute') node = node.parent;
+  return node === null ? {} : flatStyle(node);
+}
+
+describe('Emergency UI', () => {
+  it('"Dharura" button: solid emergency red, ≥ 56dp, labelled, icon + text', () => {
+    const tree = render(<EmergencyFab onPress={jest.fn()} />);
+    const fab = fabOf(tree)!;
+    expect(fab.props.accessibilityRole).toBe('button');
+    expect(fab.props.accessibilityLabel).toBe('Dharura — fungua chaguo za kupiga 112 au 115');
+    const style = flatStyle(fab);
+    expect(style.backgroundColor).toBe(lightColors.emergencyBg);
+    expect(lightColors.emergencyBg).toBe('#B91C1C');
+    expect(style.minHeight as number).toBeGreaterThanOrEqual(56);
+    expect(style.minWidth as number).toBeGreaterThanOrEqual(56);
+    expect(textOf(tree)).toContain('Dharura');
+  });
+
+  it('every shell shows the button; tapping it opens the sheet whose buttons dial 112 / 115 (no auto-call)', () => {
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const tree = inShell(<RNTextProbe />);
+    expect(fabOf(tree)).toBeDefined();
+    act(() => fabOf(tree)!.props.onPress());
+
+    expect(textOf(tree)).toContain('Kama maisha yako');
+    // The button hides while its own sheet is open.
+    expect(fabOf(tree)).toBeUndefined();
+    const dial = pressables(tree).filter((p) => String(p.props.testID).startsWith('emergency-dial-'));
+    expect(dial.map((b) => b.props.accessibilityLabel)).toEqual([
       'Piga 112 — huduma za dharura',
       'Piga 115 — gari la wagonjwa',
     ]);
-    act(() => buttons[0]!.props.onPress());
-    act(() => buttons[1]!.props.onPress());
+    for (const button of dial) expect(flatStyle(button).backgroundColor).toBe(lightColors.emergencyBg);
+    act(() => dial[0]!.props.onPress());
+    act(() => dial[1]!.props.onPress());
     expect(open).toHaveBeenNthCalledWith(1, 'tel:112');
     expect(open).toHaveBeenNthCalledWith(2, 'tel:115');
+    expect(textOf(tree)).not.toMatch(/999|911|114/);
     open.mockRestore();
+  });
+
+  it('sits bottom-right above content and overlays', () => {
+    const style = fabLayerStyle(inShell(<RNTextProbe />));
+    expect(style.right).toBeDefined();
+    expect(style.bottom).toBeDefined();
+    expect(style.zIndex as number).toBeGreaterThan(100); // OverlayHost layers are 100
+    expect(style.elevation as number).toBeGreaterThan(24);
   });
 
   it('call card never uses 999 / 911 / 114', () => {
@@ -229,8 +274,8 @@ describe('Avatar', () => {
   });
 });
 
-describe('Overlays never cover the emergency strip', () => {
-  it('a bottom sheet inside the shell renders below the strip; only the screen is hidden from TalkBack', () => {
+describe('Overlays never cover the emergency button', () => {
+  it('with a sheet open the button moves to the top, stays tappable and visible to TalkBack', () => {
     const tree = render(
       <SafeAreaProvider initialMetrics={METRICS}>
         <EmergencyShell>
@@ -242,15 +287,16 @@ describe('Overlays never cover the emergency strip', () => {
     );
     // No full-window RN Modal is used inside the shell.
     expect(tree.root.findAll((n) => n.type === Modal)).toHaveLength(0);
-    // The strip's dial buttons are not inside any hidden subtree.
-    const dial = pressables(tree).filter((p) => String(p.props.accessibilityLabel).startsWith('Piga 11'));
-    expect(dial).toHaveLength(2);
-    for (const button of dial) {
-      let node: ReactTestInstance | null = button;
-      while (node !== null) {
-        expect(node.props.importantForAccessibility).not.toBe('no-hide-descendants');
-        node = node.parent;
-      }
+    // The button is still there, out of the bottom area (sheet actions), and in no hidden subtree.
+    const fab = fabOf(tree)!;
+    expect(fab).toBeDefined();
+    const layer = fabLayerStyle(tree);
+    expect(layer.top).toBeDefined();
+    expect(layer.bottom).toBeUndefined();
+    let node: ReactTestInstance | null = fab;
+    while (node !== null) {
+      expect(node.props.importantForAccessibility).not.toBe('no-hide-descendants');
+      node = node.parent;
     }
     // The screen content under the sheet IS hidden while the sheet is open.
     expect(tree.root.findAll((n) => n.props.importantForAccessibility === 'no-hide-descendants').length).toBeGreaterThan(0);

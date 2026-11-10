@@ -2,6 +2,7 @@ import type { PropsWithChildren, ReactElement, ReactNode } from 'react';
 import { ScrollView, View, useWindowDimensions, type RefreshControlProps } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { createStyles, layout, space } from '../theme/theme';
+import { useEmergencyFabClearance } from './EmergencyShell';
 
 /** Phone vs tablet: wider gutters and a centred, capped content column on tablets. */
 export function useResponsive(): { isTablet: boolean; gutter: number } {
@@ -23,15 +24,20 @@ export function Screen({
   scroll = true,
   refreshControl,
   edges = ['left', 'right'],
+  onFooterLayout,
 }: PropsWithChildren<{
   header?: ReactNode;
   footer?: ReactNode;
   scroll?: boolean;
   refreshControl?: ReactElement<RefreshControlProps>;
   edges?: Edge[];
+  /** Footer height, e.g. to lift the emergency button above a sticky Save/Pay bar. */
+  onFooterLayout?: (height: number) => void;
 }>): React.JSX.Element {
   const styles = useStyles();
   const { gutter } = useResponsive();
+  // The last item on the page can always scroll clear of the "Dharura" button.
+  const clearance = useEmergencyFabClearance();
   const column = [styles.column, { paddingHorizontal: gutter }];
 
   return (
@@ -40,7 +46,7 @@ export function Screen({
       {scroll ? (
         <ScrollView
           style={styles.root}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, clearance > 0 && { paddingBottom: clearance }]}
           keyboardShouldPersistTaps="handled"
           {...(refreshControl !== undefined ? { refreshControl } : {})}
         >
@@ -50,7 +56,12 @@ export function Screen({
         <View style={[styles.root, column]}>{children}</View>
       )}
       {footer !== undefined ? (
-        <View style={styles.footer}>
+        <View
+          style={styles.footer}
+          {...(onFooterLayout !== undefined
+            ? { onLayout: (event) => onFooterLayout(Math.round(event.nativeEvent.layout.height)) }
+            : {})}
+        >
           <View style={[styles.footerInner, { paddingHorizontal: gutter }]}>{footer}</View>
         </View>
       ) : null}

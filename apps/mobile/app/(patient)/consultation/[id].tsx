@@ -35,6 +35,7 @@ import {
   Text,
   type IconName,
 } from '../../../src/ui';
+import { useEmergencyFabLift } from '../../../src/ui/emergency-fab-lift';
 import { noWebOutline } from '../../../src/ui/web-outline';
 
 const MAX_CHAT_LEN = 2000;
@@ -78,6 +79,9 @@ export default function ConsultationScreen(): React.JSX.Element {
   const [cameraOff, setCameraOff] = useState(false);
   const [poorConnection, setPoorConnection] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  // The "Dharura" button floats above the call controls / chat input bar.
+  const [bottomBar, setBottomBar] = useState(0);
+  useEmergencyFabLift(bottomBar);
   const controlsRef = useRef<VideoCallHandle | null>(null);
   const socketRef = useRef<ConsultationSocket | null>(null);
 
@@ -205,7 +209,7 @@ export default function ConsultationScreen(): React.JSX.Element {
           onControls={onControls}
         />
       ) : fullScreenChat ? (
-        <ChatPanel entries={chat.entries} onSend={sendChat} onRetry={sendChat} fullScreen />
+        <ChatPanel entries={chat.entries} onSend={sendChat} onRetry={sendChat} fullScreen onInputBarLayout={setBottomBar} />
       ) : (
         <View style={styles.stage}>
           <LoadingState label={t('consult.call.connecting')} onDark />
@@ -220,7 +224,7 @@ export default function ConsultationScreen(): React.JSX.Element {
       ) : null}
 
       {isVideo ? (
-        <View style={styles.controls}>
+        <View style={styles.controls} onLayout={(event) => setBottomBar(Math.round(event.nativeEvent.layout.height))}>
           <ControlButton
             icon={muted ? 'mic-off' : 'mic'}
             active={muted}
@@ -310,11 +314,14 @@ function ChatPanel({
   onSend,
   onRetry,
   fullScreen,
+  onInputBarLayout,
 }: {
   entries: ChatEntry[];
   onSend: (body: string) => void;
   onRetry: (body: string) => void;
   fullScreen: boolean;
+  /** Height of the input + Send bar (keeps the emergency button off Send). */
+  onInputBarLayout?: (height: number) => void;
 }): React.JSX.Element {
   const t = useT();
   const styles = useStyles();
@@ -357,7 +364,7 @@ function ChatPanel({
         contentContainerStyle={styles.chatContent}
         keyboardShouldPersistTaps="handled"
       />
-      <View style={styles.inputRow}>
+      <View style={styles.inputRow} onLayout={(event) => onInputBarLayout?.(Math.round(event.nativeEvent.layout.height))}>
         <TextInput
           style={styles.input}
           value={draft}
