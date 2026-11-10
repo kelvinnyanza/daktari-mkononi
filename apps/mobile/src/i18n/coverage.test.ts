@@ -29,6 +29,8 @@ const FAMILIES: Record<string, readonly string[]> = {
   'booking.type.': prismaEnum('AppointmentType'),
   'booking.intent.': ['MOBILE_MONEY', 'NHIF', 'CASH_AT_FACILITY'],
   'specialty.': doctorSpecialtySchema.options,
+  'legal.': ['terms.title', 'privacy.title'],
+  'auth.password.strength.': ['weak', 'fair', 'strong'],
 };
 
 function sourceFiles(dir: string): string[] {

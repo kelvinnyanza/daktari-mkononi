@@ -1,35 +1,43 @@
 import { loginSchema } from '@daktari/schemas';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
-import { space } from '../../src/theme/theme';
-import { Banner, Button, Input, Logo, PasswordInput, Screen, Stack, Text } from '../../src/ui';
 import { useT } from '../../src/i18n';
+import { AuthLayout } from '../../src/components/auth-layout';
+import { DevStylePreviewEntry } from '../../src/components/dev-style-preview-entry';
 import { errorMessage } from '../../src/lib/errors';
-import { validateForm, type FieldErrors } from '../../src/lib/form';
+import { validateForm } from '../../src/lib/form';
+import { fromE164, toE164 } from '../../src/lib/phone';
 import { ApiError, adoptTokenPair } from '../../src/services/api';
 import { authApi } from '../../src/services/endpoints';
 import { useAuthStore, type Role } from '../../src/stores/auth';
-import { DevStylePreviewEntry } from '../../src/components/dev-style-preview-entry';
+import { Banner, Button, PasswordInput, PhoneInput } from '../../src/ui';
 
 export default function Login(): React.JSX.Element {
   const t = useT();
   const router = useRouter();
+  // After registration + OTP the phone is carried over.
+  const params = useLocalSearchParams<{ phone?: string; next?: string }>();
   const signIn = useAuthStore((state) => state.signIn);
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(() => fromE164(params.phone));
   const [password, setPassword] = useState('');
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [errors, setErrors] = useState<{ phone?: string; password?: string }>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const submit = async (): Promise<void> => {
     setFormError(null);
-    const validated = validateForm(loginSchema, { phone, password });
+    // Same Zod schema the server validates with; messages are ours (sw/en).
+    const validated = validateForm(loginSchema, { phone: toE164(phone), password });
     if (!validated.ok) {
-      setFieldErrors(validated.fieldErrors);
+      setErrors({
+        ...(validated.fieldErrors.phone !== undefined
+          ? { phone: phone === '' ? t('auth.phone.required') : t('auth.phone.invalid') }
+          : {}),
+        ...(validated.fieldErrors.password !== undefined ? { password: t('auth.password.required') } : {}),
+      });
       return;
     }
-    setFieldErrors({});
+    setErrors({});
     setBusy(true);
     try {
       const result = await authApi.login(validated.data);
@@ -57,39 +65,30 @@ export default function Login(): React.JSX.Element {
   };
 
   return (
-    <Screen>
-      <View style={{ alignItems: 'center', paddingTop: space[6] }}>
-        <Logo size="lg" stacked tagline />
-      </View>
-      <Stack gap={4}>
-        <Text variant="title" accessibilityRole="header">
-          {t('auth.login.title')}
-        </Text>
-        <Input
-          label={t('auth.login.phone')}
-          leadingIcon="phone"
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-          autoCapitalize="none"
-          autoComplete="tel"
-          placeholder="0712 345 678"
-          error={fieldErrors.phone}
-        />
-        <PasswordInput
-          label={t('auth.login.password')}
-          leadingIcon="lock"
-          value={password}
-          onChangeText={setPassword}
-          autoComplete="current-password"
-          error={fieldErrors.password}
-        />
-        {formError !== null ? <Banner tone="danger" message={formError} /> : null}
-        <Button label={t('auth.login.submit')} icon="log-in" onPress={() => void submit()} loading={busy} />
-        <Button variant="ghost" label={t('auth.login.forgot')} onPress={() => router.push('/(auth)/forgot-password')} />
-      </Stack>
-      <Button variant="secondary" label={t('auth.login.noAccount')} onPress={() => router.push('/(auth)/register')} />
-      <DevStylePreviewEntry />
-    </Screen>
+    <AuthLayout
+      title={t('auth.login.welcome')}
+      subtitle={t('auth.login.welcomeBody')}
+      after={
+        <>
+          <Button variant="secondary" label={t('auth.login.noAccount')} onPress={() => router.push('/(auth)/register')} />
+          <DevStylePreviewEntry />
+        </>
+      }
+    >
+      <PhoneInput label={t('auth.login.phone')} value={phone} onChangeDigits={setPhone} error={errors.phone} testID="login-phone" />
+      <PasswordInput
+        label={t('auth.login.password')}
+        leadingIcon="lock"
+        value={password}
+        onChangeText={setPassword}
+        autoComplete="current-password"
+        error={errors.password}
+        onSubmitEditing={() => void submit()}
+        testID="login-password"
+      />
+      {formError !== null ? <Banner tone="danger" message={formError} /> : null}
+      <Button label={t('auth.login.submit')} icon="log-in" onPress={() => void submit()} loading={busy} testID="login-submit" />
+      <Button variant="ghost" label={t('auth.login.forgot')} onPress={() => router.push('/(auth)/forgot-password')} />
+    </AuthLayout>
   );
 }

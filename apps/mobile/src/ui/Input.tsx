@@ -14,6 +14,8 @@ export interface InputProps extends Omit<TextInputProps, 'style' | 'editable'> {
   /** Replaces the hint, turns the border red, announced politely. */
   error?: string | undefined;
   leadingIcon?: IconName;
+  /** Fixed text before the value (e.g. "+255"), visually part of the field, not editable. */
+  prefix?: string;
   /** Small trailing control inside the field (e.g. show-password IconButton). */
   trailing?: ReactNode;
   disabled?: boolean;
@@ -29,6 +31,7 @@ export function Input({
   hint,
   error,
   leadingIcon,
+  prefix,
   trailing,
   disabled = false,
   onFocus,
@@ -57,6 +60,11 @@ export function Input({
       >
         {leadingIcon !== undefined ? (
           <Icon name={leadingIcon} size={20} color={disabled ? colors.textDisabled : colors.textSecondary} />
+        ) : null}
+        {prefix !== undefined ? (
+          <View style={styles.prefix} accessible={false} importantForAccessibility="no-hide-descendants">
+            <Text variant="bodyStrong">{prefix}</Text>
+          </View>
         ) : null}
         <TextInput
           style={styles.input}
@@ -137,6 +145,13 @@ const useStyles = createStyles((c) => ({
     paddingVertical: space[3],
     // Web preview only: the field's own border is the focus indicator.
     ...noWebOutline,
+  },
+  prefix: {
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    paddingRight: space[2],
+    borderRightWidth: 1,
+    borderRightColor: c.border,
   },
   messageRow: { flexDirection: 'row', gap: space[1], alignItems: 'flex-start' },
   message: { flexShrink: 1 },

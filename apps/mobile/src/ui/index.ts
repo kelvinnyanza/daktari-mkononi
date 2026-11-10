@@ -8,6 +8,7 @@ export { Banner, EmergencyCallCard, EmergencyStrip, type BannerTone } from './Ba
 export { BottomSheet } from './BottomSheet';
 export { Button, type ButtonProps, type ButtonVariant } from './Button';
 export { Card } from './Card';
+export { Checkbox } from './Checkbox';
 export { ChipGroup } from './Chip';
 export { ConfirmDialog, type ConfirmDialogProps } from './ConfirmDialog';
 export { Header } from './Header';
@@ -17,6 +18,8 @@ export { IconTile } from './IconTile';
 export { Input, PasswordInput } from './Input';
 export { ListItem } from './ListItem';
 export { Logo, LogoMark } from './Logo';
+export { PasswordStrength } from './PasswordStrength';
+export { PhoneInput } from './PhoneInput';
 export { OverlayHost, useHasOverlayHost, useOverlay } from './OverlayHost';
 export { Screen, Section, Stack, useResponsive } from './Screen';
 export { Skeleton, SkeletonCard, SkeletonGroup, SkeletonListItem } from './Skeleton';

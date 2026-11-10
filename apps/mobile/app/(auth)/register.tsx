@@ -1,49 +1,75 @@
 import { patientRegistrationSchema } from '@daktari/schemas';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Banner, Button, ChipGroup, Header, Input, PasswordInput, Screen, Stack, Text } from '../../src/ui';
-import { useI18nStore, useT } from '../../src/i18n';
+import { View } from 'react-native';
+import { AuthLayout } from '../../src/components/auth-layout';
+import { useI18nStore, useT, type Locale } from '../../src/i18n';
 import { errorMessage } from '../../src/lib/errors';
-import { validateForm, type FieldErrors } from '../../src/lib/form';
+import { validateForm } from '../../src/lib/form';
+import { toE164 } from '../../src/lib/phone';
 import { authApi } from '../../src/services/endpoints';
+import { space } from '../../src/theme/theme';
+import {
+  Banner,
+  Button,
+  Checkbox,
+  ChipGroup,
+  Input,
+  PasswordInput,
+  PasswordStrength,
+  PhoneInput,
+  Text,
+} from '../../src/ui';
 
+type Field = 'fullName' | 'phone' | 'password' | 'consent';
+
+/**
+ * Registration (UI Phase 2): name, phone, password (live strength hint),
+ * language, and one consent box (18+, Terms, Privacy). Date of birth and sex
+ * moved to the health profile after OTP. The API call and the OTP flow are
+ * unchanged: register → verify-otp (PHONE_VERIFY) → login.
+ */
 export default function Register(): React.JSX.Element {
   const t = useT();
   const router = useRouter();
-  const locale = useI18nStore((state) => state.locale);
+  const { locale, setLocale } = useI18nStore();
+  const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  const [gender, setGender] = useState<'MALE' | 'FEMALE' | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [consent, setConsent] = useState(false);
+  const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const back = (): void => (router.canGoBack() ? router.back() : router.replace('/(auth)/login'));
+
   const submit = async (): Promise<void> => {
     setFormError(null);
-    // Same Zod schema the server validates with — one source of truth.
+    // Same Zod schema the server validates with; the messages shown are ours.
     const validated = validateForm(patientRegistrationSchema, {
-      phone,
+      phone: toE164(phone),
       password,
       fullName,
-      dateOfBirth,
-      gender,
       language: locale,
     });
+    const next: Partial<Record<Field, string>> = {};
     if (!validated.ok) {
-      setFieldErrors(validated.fieldErrors);
-      return;
+      if (validated.fieldErrors.fullName !== undefined) next.fullName = t('auth.fullName.invalid');
+      if (validated.fieldErrors.phone !== undefined) {
+        next.phone = phone === '' ? t('auth.phone.required') : t('auth.phone.invalid');
+      }
+      if (validated.fieldErrors.password !== undefined) next.password = t('auth.password.invalid');
     }
-    setFieldErrors({});
+    if (!consent) next.consent = t('auth.consent.required');
+    setErrors(next);
+    if (!validated.ok || !consent) return;
+
     setBusy(true);
     try {
       await authApi.register({
         phone: validated.data.phone,
         password,
         fullName: validated.data.fullName,
-        dateOfBirth,
-        ...(validated.data.gender !== undefined ? { gender: validated.data.gender } : {}),
         language: locale,
       });
       // Anti-enumeration: the same generic message either way; proceed to OTP.
@@ -59,64 +85,79 @@ export default function Register(): React.JSX.Element {
   };
 
   return (
-    <Screen header={<Header title={t('auth.register.title')} onBack={() => router.back()} />}>
-      <Stack gap={4}>
-        <Input
-          label={t('auth.login.phone')}
-          leadingIcon="phone"
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-          autoCapitalize="none"
-          autoComplete="tel"
-          placeholder="0712 345 678"
-          error={fieldErrors.phone}
+    <AuthLayout
+      title={t('auth.register.welcome')}
+      subtitle={t('auth.register.welcomeBody')}
+      onBack={back}
+      backLabel={t('auth.register.title')}
+      after={<Button variant="ghost" label={t('auth.register.haveAccount')} onPress={() => router.replace('/(auth)/login')} />}
+    >
+      <View style={{ gap: space[2] }}>
+        <Text variant="label">{t('auth.register.language')}</Text>
+        <ChipGroup<Locale>
+          options={[
+            { value: 'sw', label: t('profile.language.sw') },
+            { value: 'en', label: t('profile.language.en') },
+          ]}
+          value={locale}
+          onChange={setLocale} // the form switches language immediately
         />
+      </View>
+      <Input
+        label={t('auth.register.fullName')}
+        leadingIcon="user"
+        value={fullName}
+        onChangeText={setFullName}
+        autoComplete="name"
+        textContentType="name"
+        autoCapitalize="words"
+        hint={t('auth.fullName.hint')}
+        error={errors.fullName}
+        testID="register-name"
+      />
+      <PhoneInput label={t('auth.login.phone')} value={phone} onChangeDigits={setPhone} error={errors.phone} testID="register-phone" />
+      <View style={{ gap: space[2] }}>
         <PasswordInput
           label={t('auth.login.password')}
           leadingIcon="lock"
           value={password}
           onChangeText={setPassword}
           autoComplete="new-password"
-          error={fieldErrors.password}
+          textContentType="newPassword"
+          error={errors.password}
+          testID="register-password"
         />
-        <Input
-          label={t('auth.register.fullName')}
-          leadingIcon="user"
-          value={fullName}
-          onChangeText={setFullName}
-          autoComplete="name"
-          error={fieldErrors.fullName}
-        />
-        <Input
-          label={t('auth.register.dob')}
-          leadingIcon="calendar"
-          value={dateOfBirth}
-          onChangeText={setDateOfBirth}
-          placeholder="1995-06-15"
-          autoCapitalize="none"
-          error={fieldErrors.dateOfBirth}
-        />
-        <Stack gap={2}>
-          <Text variant="label">{t('auth.register.gender')}</Text>
-          <ChipGroup
-            options={[
-              { value: 'FEMALE', label: t('auth.register.gender.female') },
-              { value: 'MALE', label: t('auth.register.gender.male') },
-            ]}
-            value={gender}
-            onChange={setGender}
-          />
-          {fieldErrors.gender !== undefined ? (
-            <Text variant="caption" tone="danger">
-              {fieldErrors.gender}
-            </Text>
-          ) : null}
-        </Stack>
-        {formError !== null ? <Banner tone="danger" message={formError} /> : null}
-        <Button label={t('auth.register.submit')} icon="user-plus" onPress={() => void submit()} loading={busy} />
-        <Button variant="ghost" label={t('auth.register.haveAccount')} onPress={() => router.back()} />
-      </Stack>
-    </Screen>
+        <PasswordStrength password={password} />
+      </View>
+      <Checkbox
+        checked={consent}
+        onChange={setConsent}
+        label={t('auth.consent.label')}
+        error={errors.consent}
+        testID="register-consent"
+        below={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              fullWidth={false}
+              icon="file-text"
+              label={t('auth.consent.terms')}
+              onPress={() => router.push({ pathname: '/legal/[doc]', params: { doc: 'terms' } })}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              fullWidth={false}
+              icon="shield"
+              label={t('auth.consent.privacy')}
+              onPress={() => router.push({ pathname: '/legal/[doc]', params: { doc: 'privacy' } })}
+            />
+          </>
+        }
+      />
+      {formError !== null ? <Banner tone="danger" message={formError} /> : null}
+      <Button label={t('auth.register.submit')} icon="user-plus" onPress={() => void submit()} loading={busy} testID="register-submit" />
+    </AuthLayout>
   );
 }

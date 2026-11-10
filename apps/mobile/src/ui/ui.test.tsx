@@ -15,6 +15,7 @@ import {
   Banner,
   BottomSheet,
   Button,
+  Checkbox,
   ChipGroup,
   ConfirmDialog,
   EmergencyCallCard,
@@ -25,7 +26,9 @@ import {
   Header,
   IconButton,
   Input,
+  PasswordStrength,
   PaymentStatusPill,
+  PhoneInput,
   Text,
 } from './index';
 
@@ -308,3 +311,54 @@ const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top:
 function RNTextProbe(): React.JSX.Element {
   return <Text>probe</Text>;
 }
+
+describe('PhoneInput (+255 prefix)', () => {
+  it('shows +255, formats the local digits and reports bare digits', () => {
+    const onChange = jest.fn();
+    const tree = render(<PhoneInput label="Namba ya simu" value="712345678" onChangeDigits={onChange} />);
+    expect(textOf(tree)).toContain('+255');
+    const input = tree.root.findByType(TextInput);
+    expect(input.props.value).toBe('712 345 678');
+    expect(input.props.keyboardType).toBe('phone-pad');
+    act(() => input.props.onChangeText('+255 754 000 001'));
+    expect(onChange).toHaveBeenLastCalledWith('754000001');
+    act(() => input.props.onChangeText('0754'));
+    expect(onChange).toHaveBeenLastCalledWith('754');
+  });
+
+  it('shows the format hint until there is an error', () => {
+    const ok = render(<PhoneInput label="Simu" value="" onChangeDigits={jest.fn()} />);
+    expect(textOf(ok)).toContain('712 345 678');
+    const bad = render(<PhoneInput label="Simu" value="71" onChangeDigits={jest.fn()} error="Namba si sahihi" />);
+    expect(textOf(bad)).toContain('Namba si sahihi');
+  });
+});
+
+describe('Checkbox', () => {
+  it('is a checkbox with state; the whole row toggles', () => {
+    const onChange = jest.fn();
+    const tree = render(<Checkbox checked={false} onChange={onChange} label="Nakubali" />);
+    const box = pressables(tree)[0]!;
+    expect(box.props.accessibilityRole).toBe('checkbox');
+    expect(box.props.accessibilityState).toEqual({ checked: false });
+    act(() => box.props.onPress());
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it('announces its error', () => {
+    const tree = render(<Checkbox checked={false} onChange={jest.fn()} label="Nakubali" error="Kubali masharti" />);
+    expect(textOf(tree)).toContain('Kubali masharti');
+    expect(pressables(tree)[0]!.props.accessibilityHint).toBe('Kubali masharti');
+  });
+});
+
+describe('PasswordStrength', () => {
+  it('ticks the server rules and names the level in words', () => {
+    const empty = render(<PasswordStrength password="" />);
+    expect(textOf(empty)).toContain('Angalau herufi 8');
+    expect(textOf(empty)).not.toContain('Dhaifu');
+    expect(textOf(render(<PasswordStrength password="abc" />))).toContain('Dhaifu');
+    expect(textOf(render(<PasswordStrength password="daktari12" />))).toContain('Wastani');
+    expect(textOf(render(<PasswordStrength password="Mkononi-Afya-2026" />))).toContain('Imara');
+  });
+});
