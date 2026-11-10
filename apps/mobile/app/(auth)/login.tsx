@@ -8,14 +8,24 @@ import { errorMessage } from '../../src/lib/errors';
 import { validateForm } from '../../src/lib/form';
 import { fromE164, toE164 } from '../../src/lib/phone';
 import { ApiError, adoptTokenPair } from '../../src/services/api';
-import { authApi } from '../../src/services/endpoints';
+import { authApi, patientApi } from '../../src/services/endpoints';
 import { useAuthStore, type Role } from '../../src/stores/auth';
 import { Banner, Button, PasswordInput, PhoneInput } from '../../src/ui';
+
+/** Already filled (e.g. a re-verified account)? Unknown → treat as done: never block Home. */
+async function healthProfileDone(): Promise<boolean> {
+  try {
+    return (await patientApi.myProfile()).healthProfileCompleted;
+  } catch {
+    return true;
+  }
+}
 
 export default function Login(): React.JSX.Element {
   const t = useT();
   const router = useRouter();
-  // After registration + OTP the phone is carried over.
+  // After registration + OTP the phone is carried over and the patient goes
+  // on to the health profile ("Tukufahamu zaidi") before Home.
   const params = useLocalSearchParams<{ phone?: string; next?: string }>();
   const signIn = useAuthStore((state) => state.signIn);
   const [phone, setPhone] = useState(() => fromE164(params.phone));
@@ -47,8 +57,13 @@ export default function Login(): React.JSX.Element {
       }
       await adoptTokenPair({ accessToken: result.accessToken, refreshToken: result.refreshToken });
       const user = result.user;
-      signIn(user?.id ?? '', (user?.role as Role | undefined) ?? 'PATIENT');
-      router.replace('/');
+      const role = (user?.role as Role | undefined) ?? 'PATIENT';
+      signIn(user?.id ?? '', role);
+      if (params.next === 'health-profile' && role === 'PATIENT' && !(await healthProfileDone())) {
+        router.replace({ pathname: '/(patient)/health-profile', params: { onboarding: '1' } });
+      } else {
+        router.replace('/');
+      }
     } catch (error) {
       if (error instanceof ApiError && error.code === 'PHONE_NOT_VERIFIED') {
         // 403 → straight to OTP verification for this phone.

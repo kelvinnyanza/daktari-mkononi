@@ -27,6 +27,12 @@ import {
   type IconName,
 } from '../../src/ui';
 
+const SEX_KEY = {
+  MALE: 'health.sex.male',
+  FEMALE: 'health.sex.female',
+  UNDISCLOSED: 'health.sex.undisclosed',
+} as const;
+
 /** The 31-region enum straight from @daktari/schemas — one source of truth. */
 const REGION_OPTIONS = tzRegionSchema.options.map((region) => ({
   value: region,
@@ -41,6 +47,7 @@ export default function Profile(): React.JSX.Element {
   const signOut = useAuthStore((state) => state.signOut);
 
   const query = useQuery({ queryKey: ['profile', 'me'], queryFn: () => patientApi.myProfile() });
+  const health = useQuery({ queryKey: ['health-profile', 'me'], queryFn: () => patientApi.healthProfile() });
 
   const [editing, setEditing] = useState(false);
   const [region, setRegion] = useState<string | null>(null);
@@ -172,6 +179,43 @@ export default function Profile(): React.JSX.Element {
           <Button variant="ghost" label={t('common.cancel')} onPress={() => setEditing(false)} />
         </Card>
       )}
+
+      <Card>
+        <Text variant="heading" accessibilityRole="header">
+          {t('health.editTitle')}
+        </Text>
+        {health.isPending ? (
+          <SkeletonGroup>
+            <SkeletonCard />
+          </SkeletonGroup>
+        ) : health.isError ? (
+          <ErrorState message={errorMessage(health.error)} onRetry={() => void health.refetch()} />
+        ) : health.data.completed ? (
+          <>
+            {health.data.age !== null ? (
+              <ProfileRow icon="calendar" label={t('health.dob')} value={t('health.age', { years: health.data.age })} />
+            ) : null}
+            {health.data.sex !== null ? (
+              <ProfileRow icon="user" label={t('health.sex')} value={t(SEX_KEY[health.data.sex])} />
+            ) : null}
+            {health.data.heightCm !== null && health.data.weightKg !== null ? (
+              <ProfileRow
+                icon="activity"
+                label={`${t('health.height')} · ${t('health.weight')}`}
+                value={`${health.data.heightCm} cm · ${health.data.weightKg} kg`}
+              />
+            ) : null}
+          </>
+        ) : (
+          <Text tone="secondary">{t('health.summary.none')}</Text>
+        )}
+        <Button
+          variant="secondary"
+          icon="clipboard"
+          label={health.data?.completed === true ? t('health.summary.edit') : t('health.summary.fill')}
+          onPress={() => router.push('/(patient)/health-profile')}
+        />
+      </Card>
 
       <Button
         variant="secondary"

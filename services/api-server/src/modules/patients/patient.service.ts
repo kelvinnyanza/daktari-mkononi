@@ -56,6 +56,16 @@ export interface PatientProfileView {
   insurance?: { verifiedNhif: boolean };
 }
 
+/**
+ * Admin view: identity, address and NHIF only. The clinical fields are left
+ * out (and the encrypted blob is never decrypted) — patients are told only
+ * the doctor treating them sees their health profile.
+ */
+export type AdminPatientProfileView = Omit<
+  PatientProfileView,
+  'heightCm' | 'weightKg' | 'bloodType' | 'allergies' | 'chronicConditions' | 'currentMedications'
+>;
+
 export interface PatientServiceDeps {
   patients: PatientRepoPort;
   users: UserRepoPort;
@@ -107,6 +117,36 @@ export class PatientService {
             }
           : null,
       healthProfileCompleted: toHealthProfileView(patient, this.now()).completed,
+      profileCompletion: { complete: missingFields.length === 0, missingFields },
+    };
+  }
+
+  private toAdminView(patient: Patient): AdminPatientProfileView {
+    const missingFields = COMPLETION_FIELDS.filter((field) => {
+      const value = patient[field];
+      return value === null || value === '' || value === 'UNKNOWN';
+    });
+    return {
+      patientNumber: patient.patientNumber,
+      dateOfBirth: patient.dateOfBirth,
+      gender: patient.gender,
+      region: patient.region,
+      district: patient.district,
+      ward: patient.ward,
+      street: patient.street,
+      address: patient.address,
+      nhifCardNumber: patient.nhifCardNumber,
+      nhifVerified: patient.nhifVerifiedAt !== null,
+      emergencyContact:
+        patient.emergencyContactName !== null && patient.emergencyContactPhone !== null
+          ? {
+              name: patient.emergencyContactName,
+              phone: patient.emergencyContactPhone,
+              relationship: patient.emergencyContactRelationship,
+            }
+          : null,
+      // Completion only (consent stamp) — no decrypt on an admin read.
+      healthProfileCompleted: patient.healthConsentAt !== null && patient.encryptedHealthProfile !== null,
       profileCompletion: { complete: missingFields.length === 0, missingFields },
     };
   }
@@ -252,13 +292,13 @@ export class PatientService {
 
   /** Admin read (permission patient:read:any) — audited as a PHI read. */
   async adminGetPatient(patientId: string): Promise<{
-    profile: PatientProfileView;
+    profile: AdminPatientProfileView;
     user: { id: string; phone: string; fullName: string };
   }> {
     const patient = await this.deps.patients.findByIdWithUser(patientId);
     if (!patient) throw PATIENT_NOT_FOUND();
     return {
-      profile: this.toView(patient),
+      profile: this.toAdminView(patient),
       user: { id: patient.user.id, phone: patient.user.phone, fullName: patient.user.fullName },
     };
   }

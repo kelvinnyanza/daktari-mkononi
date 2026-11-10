@@ -30,3 +30,9 @@ function titleCase(code: string): string {
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 }
+
+/** "O_POS" → "O+", "AB_NEG" → "AB−" (universal notation, not translated). */
+export function bloodTypeLabel(value: string): string {
+  const [group, sign] = value.split('_');
+  return `${group ?? value}${sign === 'POS' ? '+' : sign === 'NEG' ? '−' : ''}`;
+}

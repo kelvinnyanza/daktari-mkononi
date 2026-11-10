@@ -4,7 +4,7 @@ import { View } from 'react-native';
 import { useT } from '../../src/i18n';
 import { errorMessage } from '../../src/lib/errors';
 import { eatDateTimeLabel } from '../../src/lib/datetime';
-import { appointmentApi } from '../../src/services/endpoints';
+import { appointmentApi, patientApi } from '../../src/services/endpoints';
 import { space } from '../../src/theme/theme';
 import {
   AppointmentStatusPill,
@@ -36,6 +36,8 @@ export default function Home(): React.JSX.Element {
     queryKey: ['appointments', 'me'],
     queryFn: () => appointmentApi.listMine(),
   });
+  // Same cache entry as Profile; the card only shows once we KNOW it's incomplete.
+  const profile = useQuery({ queryKey: ['profile', 'me'], queryFn: () => patientApi.myProfile() });
 
   const upcoming = appointments.data?.items
     .filter((item) => item.status === 'CONFIRMED' && new Date(item.scheduledAt) > new Date())
@@ -52,6 +54,25 @@ export default function Home(): React.JSX.Element {
           <Text tone="secondary">{t('home.ask')}</Text>
         </View>
       </View>
+
+      {profile.data?.healthProfileCompleted === false ? (
+        <Card>
+          <View style={{ flexDirection: 'row', gap: space[3], alignItems: 'flex-start' }}>
+            <IconTile icon="clipboard" />
+            <View style={{ flex: 1, gap: space[1] }}>
+              <Text variant="heading">{t('health.card.title')}</Text>
+              <Text tone="secondary">{t('health.card.body')}</Text>
+            </View>
+          </View>
+          <Button
+            variant="secondary"
+            icon="edit-3"
+            label={t('health.card.action')}
+            onPress={() => router.push('/(patient)/health-profile')}
+            testID="home-health-card"
+          />
+        </Card>
+      ) : null}
 
       <Card tone="primary">
         <Text variant="heading">{t('screening.title')}</Text>

@@ -36,7 +36,13 @@ export default function VerifyOtp(): React.JSX.Element {
       await authApi.verifyOtp({ phone: params.phone ?? '', purpose, code });
       setNotice(t('auth.otp.success'));
       // Carry the verified phone to login so the patient doesn't retype it.
-      router.replace({ pathname: '/(auth)/login', params: { phone: params.phone ?? '' } });
+      router.replace({
+        pathname: '/(auth)/login',
+        params:
+          purpose === 'PHONE_VERIFY'
+            ? { phone: params.phone ?? '', next: 'health-profile' }
+            : { phone: params.phone ?? '' },
+      });
     } catch (error) {
       setFormError(errorMessage(error));
     } finally {

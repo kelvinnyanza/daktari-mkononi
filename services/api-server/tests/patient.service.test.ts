@@ -213,6 +213,10 @@ describe('admin reads', () => {
     const { patient } = deps.seedPatient({}, { region: 'MWANZA', district: 'Ilemela' });
     const result = await service.adminGetPatient(patient.id);
     expect(result.profile.region).toBe('MWANZA');
+    // Clinical fields never reach the admin view.
+    expect(result.profile).not.toHaveProperty('allergies');
+    expect(result.profile).not.toHaveProperty('heightCm');
+    expect(result.profile).not.toHaveProperty('bloodType');
     expect(result.user.phone).toBeTruthy();
 
     const error = await service.adminGetPatient('c0000000000000000000nope').then(

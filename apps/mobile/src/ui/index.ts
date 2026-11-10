@@ -22,6 +22,7 @@ export { PasswordStrength } from './PasswordStrength';
 export { PhoneInput } from './PhoneInput';
 export { OverlayHost, useHasOverlayHost, useOverlay } from './OverlayHost';
 export { Screen, Section, Stack, useResponsive } from './Screen';
+export { SelectField } from './SelectField';
 export { Skeleton, SkeletonCard, SkeletonGroup, SkeletonListItem } from './Skeleton';
 export { EmergencyShell } from './EmergencyShell';
 export { EmptyState, ErrorState, LoadingState } from './States';

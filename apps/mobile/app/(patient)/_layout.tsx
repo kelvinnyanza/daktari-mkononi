@@ -34,6 +34,7 @@ export default function PatientLayout(): React.JSX.Element {
         <Tabs.Screen name="screening" options={{ href: null }} />
         <Tabs.Screen name="doctors" options={{ href: null }} />
         <Tabs.Screen name="consultation" options={{ href: null }} />
+        <Tabs.Screen name="health-profile" options={{ href: null }} />
       </Tabs>
     </EmergencyShell>
   );

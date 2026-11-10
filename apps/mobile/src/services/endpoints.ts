@@ -1,4 +1,6 @@
 /** Thin, typed wrappers over the API — one function per endpoint the app uses. */
+import type { HealthProfileView, healthProfileInputSchema } from '@daktari/schemas';
+import type { z } from 'zod';
 import { apiRequest, type BilingualMessage } from './api';
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -66,7 +68,9 @@ export interface PatientProfile {
   district: string;
   ward: string | null;
   street: string | null;
-  emergencyContact: { name: string; phone: string; relationship: string } | null;
+  emergencyContact: { name: string; phone: string; relationship: string | null } | null;
+  /** Health profile saved with consent — false shows the Home "complete your profile" card. */
+  healthProfileCompleted: boolean;
   profileCompletion: { complete: boolean; missingFields: string[] };
   /** Present on own-profile reads — gates the NHIF payment intent. */
   insurance?: { verifiedNhif: boolean };
@@ -76,7 +80,14 @@ export const patientApi = {
   myProfile: () => apiRequest<PatientProfile>('/api/v1/patients/me/profile'),
   updateProfile: (body: Record<string, unknown>) =>
     apiRequest<PatientProfile>('/api/v1/patients/me/profile', { method: 'PATCH', body }),
+  // Health profile (UI Phase 2) — clinical fields are encrypted at rest server-side.
+  healthProfile: () => apiRequest<HealthProfileView>('/api/v1/patients/me/health-profile'),
+  saveHealthProfile: (body: HealthProfileInputBody) =>
+    apiRequest<HealthProfileView>('/api/v1/patients/me/health-profile', { method: 'PUT', body }),
 };
+
+/** The PUT body as sent (before server parsing): dates as YYYY-MM-DD strings. */
+export type HealthProfileInputBody = z.input<typeof healthProfileInputSchema>;
 
 // ── Appointments ─────────────────────────────────────────────────────────────
 export interface AppointmentItem {
