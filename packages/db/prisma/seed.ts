@@ -7,7 +7,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { hashPassword } from '@daktari/encryption';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
+import { createHealthTipSchema } from '@daktari/schemas';
+import { HEALTH_TIP_DRAFTS } from './seed-data/health-tips/index.js';
 
 // Load the repo-root .env explicitly, before the client reads DATABASE_URL:
 // the seed is run directly (`tsx prisma/seed.ts`) with CWD = packages/db, so
@@ -355,6 +357,25 @@ async function seedClinicalJourney() {
   });
 }
 
+/**
+ * 110 health-tip DRAFTS (UI Phase 3). Create-only by slug: a re-seed never
+ * overwrites an edited tip and NEVER changes status — tips reach patients only
+ * after a verified doctor reviews them and an admin publishes them.
+ */
+async function seedHealthTips(): Promise<number> {
+  let created = 0;
+  for (const draft of HEALTH_TIP_DRAFTS) {
+    const tip = createHealthTipSchema.parse(draft); // same rules as the API
+    const existing = await prisma.healthTip.findUnique({ where: { slug: tip.slug }, select: { id: true } });
+    if (existing !== null) continue;
+    await prisma.healthTip.create({
+      data: { ...tip, sources: tip.sources as unknown as Prisma.InputJsonValue, status: 'DRAFT' },
+    });
+    created += 1;
+  }
+  return created;
+}
+
 async function main() {
   const platformAdmin = await prisma.user.upsert({
     where: { phone: '+255713000000' },
@@ -374,6 +395,8 @@ async function main() {
   await seedDoctors({ muhimbili: muhimbili.id, bugando: bugando.id });
   await seedPatients();
   await seedClinicalJourney();
+  const tips = await seedHealthTips();
+  console.log(`Health tips: ${tips} new DRAFT tip(s) (${HEALTH_TIP_DRAFTS.length} in the content set).`);
 
   console.log(`Seed complete. Platform admin: ${platformAdmin.phone} / ${SEED_PASSWORD}`);
 }

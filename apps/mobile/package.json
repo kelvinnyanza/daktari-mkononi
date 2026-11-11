@@ -12,6 +12,7 @@
     "test": "jest --ci --silent",
     "ios": "expo run:ios",
     "onboarding:images": "node scripts/onboarding-images.mjs",
+    "illustrations": "node scripts/illustrations.mjs",
     "brand:assets": "node scripts/brand-assets.mjs",
     "check:bundle-duplicates": "node scripts/check-bundle-duplicates.mjs"
   },
