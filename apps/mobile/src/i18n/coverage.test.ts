@@ -33,6 +33,7 @@ const FAMILIES: Record<string, readonly string[]> = {
   'auth.password.strength.': ['weak', 'fair', 'strong'],
   // UI Phase 3: tip categories; greeting (morning/afternoon/evening, with or without a name).
   'tips.category.': healthTipCategorySchema.options,
+  'profile.completion.step.': ['health', 'address', 'street', 'contact'],
   'home.greeting.': ['morning', 'afternoon', 'evening', 'morning.named', 'afternoon.named', 'evening.named'],
 };
 

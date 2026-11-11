@@ -42,3 +42,14 @@ export const API_CONFIG: ApiConfig = resolveApiConfig(process.env.EXPO_PUBLIC_AP
  * root layout renders the misconfiguration screen instead of any route.
  */
 export const API_BASE_URL: string = API_CONFIG.ok ? API_CONFIG.baseUrl : '';
+
+/**
+ * Support contact shown on Profile → Msaada. Optional: set
+ * EXPO_PUBLIC_SUPPORT_PHONE / EXPO_PUBLIC_SUPPORT_EMAIL for the build; when
+ * unset the Help screen says contact details are coming soon (never a guess).
+ * Literal process.env.EXPO_PUBLIC_* expressions so Expo inlines them.
+ */
+export const SUPPORT_CONTACT: { phone: string | null; email: string | null } = {
+  phone: process.env.EXPO_PUBLIC_SUPPORT_PHONE?.trim() || null,
+  email: process.env.EXPO_PUBLIC_SUPPORT_EMAIL?.trim() || null,
+};

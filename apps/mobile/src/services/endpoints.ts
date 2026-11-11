@@ -49,7 +49,7 @@ export const authApi = {
     }),
   logout: () => apiRequest<{ message: BilingualMessage }>('/api/v1/auth/logout', { method: 'POST' }),
   me: () =>
-    apiRequest<{ user: { id: string; phone: string; fullName: string; language: string } }>(
+    apiRequest<{ user: { id: string; phone: string; fullName: string; language: string; memberSince?: string } }>(
       '/api/v1/auth/me',
     ),
   /** Registration OTP re-send (Phase 9) — anti-enumeration 202 always. */

@@ -1,5 +1,5 @@
 import { forgotPasswordSchema } from '@daktari/schemas';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Banner, Button, Header, Input, Screen, Stack, Text } from '../../src/ui';
 import { useT } from '../../src/i18n';
@@ -10,7 +10,9 @@ import { authApi } from '../../src/services/endpoints';
 export default function ForgotPassword(): React.JSX.Element {
   const t = useT();
   const router = useRouter();
-  const [phone, setPhone] = useState('');
+  // Prefilled when opened from Profile → Faragha na usalama → Badilisha nenosiri.
+  const params = useLocalSearchParams<{ phone?: string }>();
+  const [phone, setPhone] = useState(params.phone ?? '');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

@@ -383,7 +383,8 @@ export class AuthService {
       throw unauthorized('TOKEN_INVALID', msg('Kikao si halali', 'Invalid session'));
     }
     return {
-      user: this.toSummary(user),
+      // memberSince: shown on the patient's Profile header (UI Phase 3).
+      user: { ...this.toSummary(user), memberSince: user.createdAt.toISOString() },
       profile: user.patient
         ? {
             type: 'PATIENT',

@@ -19,6 +19,7 @@ export { Input, PasswordInput } from './Input';
 export { ListItem } from './ListItem';
 export { Logo, LogoMark } from './Logo';
 export { PasswordStrength } from './PasswordStrength';
+export { ProgressBar } from './ProgressBar';
 export { PhoneInput } from './PhoneInput';
 export { OverlayHost, useHasOverlayHost, useOverlay } from './OverlayHost';
 export { Screen, Section, Stack, useResponsive } from './Screen';
