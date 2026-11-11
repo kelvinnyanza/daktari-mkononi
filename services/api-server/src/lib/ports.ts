@@ -4,6 +4,9 @@
  * fakes. Services receive these via constructor injection.
  */
 import type {
+  AdminTipFilters,
+  HealthTipWithReviewer,
+  PublicTipFilters,
   AddDiagnosisInput,
   AdminPaymentFilters,
   AIScreeningResult,
@@ -394,6 +397,22 @@ export interface HealthChecks {
 /** Reads a locally stored file by key — null when storage is remote (S3). */
 export type LocalFileReader = ((key: string) => Promise<Buffer>) | null;
 
+/** Health tips (UI Phase 3) — satisfied by healthTipRepository. */
+export type HealthTipRow = HealthTipWithReviewer;
+export interface HealthTipRepoPort {
+  create(data: Prisma.HealthTipUncheckedCreateInput): Promise<HealthTipRow>;
+  update(id: string, data: Prisma.HealthTipUncheckedUpdateInput): Promise<HealthTipRow>;
+  transition(
+    id: string,
+    from: Array<HealthTipRow['status']>,
+    data: Prisma.HealthTipUncheckedUpdateInput,
+  ): Promise<HealthTipRow | null>;
+  findById(id: string): Promise<HealthTipRow | null>;
+  findBySlug(slug: string): Promise<HealthTipRow | null>;
+  listAdmin(filters: AdminTipFilters): Promise<{ items: HealthTipRow[]; total: number }>;
+  listPublic(filters: PublicTipFilters): Promise<{ items: HealthTipRow[]; total: number }>;
+}
+
 export interface AppDeps {
   users: UserRepoPort;
   sessions: SessionRepoPort;
@@ -422,4 +441,5 @@ export interface AppDeps {
   auditLogs: AuditLogPort;
   sms: SmsPort;
   health: HealthChecks;
+  healthTips: HealthTipRepoPort;
 }

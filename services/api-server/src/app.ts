@@ -9,6 +9,8 @@ import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
 import type { Redis } from 'ioredis';
 import { env } from '@daktari/config';
+import { buildAdminHealthTipRoutes, buildPublicHealthTipRoutes } from './modules/health-tips/health-tip.routes.js';
+import { HealthTipService } from './modules/health-tips/health-tip.service.js';
 import './types.js';
 import { errorHandler, notFoundHandler } from './lib/errors.js';
 import { buildLoggerOptions } from './lib/logger.js';
@@ -329,6 +331,25 @@ export async function buildAppWithServices(options: BuildAppOptions): Promise<Bu
   );
   await app.register(buildReportRoutes(financeService, options.deps.sessions, now), {
     prefix: '/api/v1/admin',
+  });
+  // Health tips (UI Phase 3): public reads for the app, editor/reviewer admin.
+  const healthTipService = new HealthTipService(
+    {
+      tips: options.deps.healthTips,
+      doctors: options.deps.doctors,
+      auditLogs: options.deps.auditLogs,
+      storage: options.deps.storage,
+    },
+    // Draft preview (the app's "RASIMU" badge) never exists in production.
+    { allowDraftPreview: env.NODE_ENV !== 'production' },
+    now,
+  );
+  await app.register(
+    buildPublicHealthTipRoutes(healthTipService, options.deps.storage, options.deps.localFiles),
+    { prefix: '/api/v1/health-tips' },
+  );
+  await app.register(buildAdminHealthTipRoutes(healthTipService, options.deps.sessions, now), {
+    prefix: '/api/v1/admin/health-tips',
   });
   await app.register(
     buildAzamPayWebhookRoutes(

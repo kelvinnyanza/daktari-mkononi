@@ -29,7 +29,12 @@
  * | hospital:manage:own           |         |        |      ✓         |                |  hospital:*    |     *       |
  * | user:manage / audit:read      |         |        |                |                |      ✓         |     *       |
  * | admin:*                       |         |        |                |                |      ✓         |     *       |
+ * | content:review (health tips)  |         |  ✓ (1) |                |                |  content:*     |     *       |
+ * | content:manage (health tips)  |         |        |                |                |  content:*     |     *       |
  * | system:* (destructive ops)    |         |        |                |                |     ✗ NO       |     *       |
+ *
+ * (1) Only a doctor whose verification is APPROVED may actually review — the
+ *     health-tip service checks that; the role grant alone is not enough.
  */
 
 export const ROLES = [
@@ -84,6 +89,9 @@ export const ALL_PERMISSIONS = [
   'audit:read',
   'admin:dashboard',
   'admin:reports',
+  // Health tips (UI Phase 3): create/edit/publish/archive, and medical review.
+  'content:manage',
+  'content:review',
   'system:purge-data',
   'system:manage-admins',
   'system:rotate-keys',
@@ -126,6 +134,7 @@ export const PERMISSIONS: Readonly<Record<Role, readonly Grant[]>> = {
     'medical-record:create',
     'medical-record:read:assigned',
     'vitals:read:assigned',
+    'content:review',
   ],
   HOSPITAL_ADMIN: [
     'hospital:manage:own',
@@ -154,6 +163,7 @@ export const PERMISSIONS: Readonly<Record<Role, readonly Grant[]>> = {
     'user:manage',
     'audit:read',
     'admin:*',
+    'content:*',
   ],
   SUPER_ADMIN: ['*'],
 };

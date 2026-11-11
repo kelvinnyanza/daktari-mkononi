@@ -50,6 +50,8 @@ export type { CreateMedicalRecordInput } from './medical-record.repository.js';
 export { ratingRepository, AlreadyRatedError } from './rating.repository.js';
 export type { CreateRatingInput } from './rating.repository.js';
 export { auditLogRepository } from './audit-log.repository.js';
+export { healthTipRepository } from './health-tip.repository.js';
+export type { AdminTipFilters, HealthTipWithReviewer, PublicTipFilters } from './health-tip.repository.js';
 export { screeningRepository } from './screening.repository.js';
 export type {
   CreateScreeningSessionInput,

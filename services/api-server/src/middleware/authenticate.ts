@@ -28,6 +28,19 @@ export function makeAuthenticate(
 }
 
 /** Route guard: requires authenticate to have run first. */
+/** Passes when the role holds ANY of the permissions (e.g. editors OR reviewers may read). */
+export function authorizeAny(permissions: readonly Permission[]): preHandlerAsyncHookHandler {
+  return async function authorizeAnyHook(request: FastifyRequest): Promise<void> {
+    if (request.auth === null) {
+      throw unauthorized('TOKEN_MISSING', msg('Unahitaji kuingia kwanza', 'Authentication required'));
+    }
+    const role = request.auth.role;
+    if (!permissions.some((permission) => hasPermission(role, permission))) {
+      throw forbidden(msg('Huna ruhusa ya kufanya kitendo hiki', 'You are not allowed to perform this action'));
+    }
+  };
+}
+
 export function authorize(permission: Permission): preHandlerAsyncHookHandler {
   return async function authorizeHook(request: FastifyRequest): Promise<void> {
     if (request.auth === null) {

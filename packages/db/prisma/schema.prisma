@@ -299,6 +299,7 @@ model User {
   hospitalAdmin HospitalAdmin?
   notifications Notification[]
   auditLogs     AuditLog[]     @relation("AuditActor")
+  reviewedTips  HealthTip[]    @relation("HealthTipReviewer")
 
   @@index([role])
   @@index([deletedAt])
@@ -1038,4 +1039,62 @@ model AuditLog {
 
   @@index([resourceType, resourceId])
   @@index([actorUserId, createdAt])
+}
+
+// ─── Health tips (UI Phase 3) ────────────────────────────────────────────────
+// Public health-education content shown in the patient app. Never PHI.
+// Lifecycle: DRAFT → REVIEWED (verified doctor / content reviewer) →
+// PUBLISHED → ARCHIVED (ARCHIVED → DRAFT to restore). Editing the content of a
+// REVIEWED or PUBLISHED tip sends it back to DRAFT: it must be re-reviewed.
+
+enum HealthTipCategory {
+  NUTRITION // lishe
+  EXERCISE // mazoezi
+  WATER_HYGIENE // maji na usafi
+  MENTAL_HEALTH // afya ya akili
+  CHRONIC_DISEASE // magonjwa sugu
+  MATERNAL_CHILD // afya ya mama na mtoto
+  MALARIA
+  PREVENTION // kinga
+}
+
+enum HealthTipStatus {
+  DRAFT
+  REVIEWED
+  PUBLISHED
+  ARCHIVED
+}
+
+model HealthTip {
+  id               String            @id @default(cuid())
+  slug             String            @unique
+  category         HealthTipCategory
+  titleSw          String
+  titleEn          String
+  summarySw        String
+  summaryEn        String
+  // Simple formatted text: "## heading", "- bullet", blank-line paragraphs.
+  bodySw           String
+  bodyEn           String
+  takeawaysSw      String[]
+  takeawaysEn      String[]
+  // Bundled illustration key (apps ship the artwork); imageKey = optional upload.
+  illustration     String
+  imageKey         String?
+  // [{ name, url }] — every tip cites its sources.
+  sources          Json
+  status           HealthTipStatus   @default(DRAFT)
+  reviewedByUserId String?
+  reviewedBy       User?             @relation("HealthTipReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?
+  publishedAt      DateTime?
+  priority         Int               @default(0)
+  publishAt        DateTime?
+  unpublishAt      DateTime?
+  createdByUserId  String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([status, publishAt])
+  @@index([category])
 }

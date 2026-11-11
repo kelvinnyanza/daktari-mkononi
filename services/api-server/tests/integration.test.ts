@@ -101,6 +101,7 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('API integration (real Postgres)', ()
         pubsub: new InMemoryPubSub(),
         localFiles: null,
         auditLogs: db.auditLogRepository,
+        healthTips: db.healthTipRepository,
         sms,
         health: {
           db: async () => {

@@ -1,6 +1,8 @@
 /** In-memory implementations of the repository ports for unit tests. */
 import type { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
+import type { HealthTip } from '@daktari/db';
+import { makeFakeHealthTips } from './fake-health-tips.js';
 import type {
   AIScreeningResult,
   Appointment,
@@ -223,6 +225,7 @@ export interface FakeDeps extends AppDeps {
     sessions: Map<string, Session>;
     otps: Map<string, OtpCode>;
     auditEntries: AuditLogEntry[];
+    healthTips: Map<string, HealthTip>;
   };
   seedUser(overrides?: Partial<User>): User;
   seedPatient(userOverrides?: Partial<User>, patientOverrides?: Partial<Patient>): { user: User; patient: Patient };
@@ -252,6 +255,7 @@ export function makeFakeDeps(): FakeDeps {
   const sessions = new Map<string, Session>();
   const otps = new Map<string, OtpCode>();
   const auditEntries: AuditLogEntry[] = [];
+  const fakeTips = makeFakeHealthTips(users);
   const sms = new FakeSms();
   const storage = new FakeStorage();
   const payments = new FakePaymentPort();
@@ -344,6 +348,7 @@ export function makeFakeDeps(): FakeDeps {
       sessions,
       otps,
       auditEntries,
+      healthTips: fakeTips.rows,
     },
 
     seedUser(overrides: Partial<User> = {}): User {
@@ -1427,6 +1432,7 @@ export function makeFakeDeps(): FakeDeps {
     },
 
     health: { db: null, redis: null },
+    healthTips: fakeTips.port,
   };
 
   return deps;

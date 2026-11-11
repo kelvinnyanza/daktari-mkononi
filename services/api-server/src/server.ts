@@ -21,6 +21,7 @@ import {
   medicalRecordRepository,
   otpRepository,
   patientRepository,
+  healthTipRepository,
   paymentRepository,
   prisma,
   ratingRepository,
@@ -196,6 +197,7 @@ async function main(): Promise<void> {
       localFiles,
       auditLogs: auditLogRepository,
       sms: createSmsPort(env),
+      healthTips: healthTipRepository,
       health: {
         db: async () => {
           await prisma.$queryRaw`SELECT 1`;

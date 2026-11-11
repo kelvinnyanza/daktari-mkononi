@@ -149,6 +149,15 @@ delivery. **Swahili-first UX**, English secondary (every user-facing string has 
   (`toPromptContext` in `modules/ai/prompts.ts`) — never any other profile field.
   The doctor sees the profile read-only in the consultation patient context
   (age in years, never the DOB).
+- **Health tips (UI Phase 3):** public health-education content (never PHI),
+  `HealthTip` DRAFT → REVIEWED → PUBLISHED → ARCHIVED. Review needs
+  `content:review` and, for a DOCTOR, an APPROVED verification; publish needs
+  `content:manage` and a REVIEWED tip. Editing the content of a REVIEWED or
+  PUBLISHED tip sends it back to DRAFT (re-review). Every change is audited
+  (`HEALTH_TIP_*`). Patients get PUBLISHED tips inside publishAt/unpublishAt
+  via `GET /api/v1/health-tips` (unauthenticated, ETag/304); `preview=drafts`
+  is honoured only outside production. Seed content is DRAFT only — never
+  seed or script a tip straight to PUBLISHED.
 - **Web portal API access (Phase 11):** the browser calls the API **directly**
   — there is no Next.js server proxy. A proxy cannot hold a per-user in-memory
   access token without inventing a server-side session store (the stateful

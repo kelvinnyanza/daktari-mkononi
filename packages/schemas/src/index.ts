@@ -2,6 +2,7 @@ export * from './common.js';
 export * from './auth.schema.js';
 export * from './patient.schema.js';
 export * from './health-profile.schema.js';
+export * from './health-tip.schema.js';
 export * from './doctor.schema.js';
 export * from './appointment.schema.js';
 export * from './consultation.schema.js';
