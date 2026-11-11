@@ -13,6 +13,7 @@ const NAV: NavItem[] = [
   { href: '/admin/ai-usage', labelKey: 'admin.nav.aiUsage' },
   { href: '/admin/doctors', labelKey: 'admin.nav.doctors' },
   { href: '/admin/patients', labelKey: 'admin.nav.patients' },
+  { href: '/admin/health-tips', labelKey: 'admin.nav.tips' },
 ];
 
 export default function AdminLayout({ children }: { children: ReactNode }) {

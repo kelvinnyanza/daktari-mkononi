@@ -14,6 +14,7 @@ const NAV: NavItem[] = [
   { href: '/doctor/today', labelKey: 'doctor.nav.today' },
   { href: '/doctor/schedule', labelKey: 'doctor.nav.schedule' },
   { href: '/doctor/earnings', labelKey: 'doctor.nav.earnings' },
+  { href: '/doctor/health-tips', labelKey: 'doctor.nav.tips' },
   { href: '/doctor/onboarding', labelKey: 'onboarding.nav' },
 ];
 

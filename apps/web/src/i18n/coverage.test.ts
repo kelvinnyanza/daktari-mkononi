@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { doctorDocumentFieldSchema, doctorSpecialtySchema } from '@daktari/schemas';
+import { doctorDocumentFieldSchema, doctorSpecialtySchema, healthTipCategorySchema, healthTipStatusSchema } from '@daktari/schemas';
 import { NOTE_FIELDS } from '../features/consultation/notes-autosave';
 import { en, sw } from './translations';
 
@@ -34,6 +34,10 @@ const FAMILIES: Record<string, readonly string[]> = {
   'consultation.': NOTE_FIELDS,
   // Health profile panel (UI Phase 2) — sexKey() / bpKey() in the consultation page.
   'consultation.sex.': ['male', 'female', 'undisclosed'],
+  // Health tips (UI Phase 3).
+  'tips.status.': healthTipStatusSchema.options,
+  'tips.category.': healthTipCategorySchema.options,
+  'tips.lang.': ['sw', 'en'],
   'consultation.bp.': ['none', 'treated', 'untreated', 'unknown'],
   'payments.review.reason.': prismaEnum('PaymentReviewReason'),
   'payouts.reason.': ['OK', 'NO_ACCOUNT', 'ACCOUNT_NOT_VERIFIED', 'BELOW_MINIMUM'],
