@@ -3,7 +3,7 @@
  * Tokens: src/theme/theme.ts. Guide: docs/design-system.md.
  * Preview (dev builds only): daktari://dev/style-preview
  */
-export { Avatar, initials } from './Avatar';
+export { Avatar, firstName, initials } from './Avatar';
 export { Banner, EmergencyCallCard, type BannerTone } from './Banner';
 export { BottomSheet } from './BottomSheet';
 export { Button, type ButtonProps, type ButtonVariant } from './Button';

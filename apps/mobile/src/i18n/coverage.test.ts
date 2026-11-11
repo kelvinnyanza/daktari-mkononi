@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { doctorSpecialtySchema } from '@daktari/schemas';
+import { doctorSpecialtySchema, healthTipCategorySchema } from '@daktari/schemas';
 import { en, sw } from './translations';
 
 /**
@@ -31,6 +31,9 @@ const FAMILIES: Record<string, readonly string[]> = {
   'specialty.': doctorSpecialtySchema.options,
   'legal.': ['terms.title', 'privacy.title'],
   'auth.password.strength.': ['weak', 'fair', 'strong'],
+  // UI Phase 3: tip categories; greeting (morning/afternoon/evening, with or without a name).
+  'tips.category.': healthTipCategorySchema.options,
+  'home.greeting.': ['morning', 'afternoon', 'evening', 'morning.named', 'afternoon.named', 'evening.named'],
 };
 
 function sourceFiles(dir: string): string[] {

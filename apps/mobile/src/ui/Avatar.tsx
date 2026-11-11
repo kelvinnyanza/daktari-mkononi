@@ -6,6 +6,16 @@ import { Text } from './Text';
 /** Honorifics dropped before taking initials ("Dkt. Amina Mushi" → "AM"). */
 const TITLES = new Set(['dkt', 'dkt.', 'dr', 'dr.', 'daktari', 'prof', 'prof.']);
 
+/** "Dkt. Amina Mushi" → "Amina" (for greetings); '' when there is no name. */
+export function firstName(name: string): string {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .find((word) => word !== '' && !TITLES.has(word.toLowerCase())) ?? ''
+  );
+}
+
 export function initials(name: string): string {
   const words = name
     .trim()

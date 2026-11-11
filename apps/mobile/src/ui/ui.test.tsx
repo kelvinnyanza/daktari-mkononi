@@ -13,6 +13,7 @@ import {
   AppointmentStatusPill,
   Avatar,
   Banner,
+  firstName,
   BottomSheet,
   Button,
   Checkbox,
@@ -287,6 +288,12 @@ describe('ChipGroup', () => {
 describe('Avatar', () => {
   it('shows initials without the honorific', () => {
     expect(textOf(render(<Avatar name="Dkt. Amina Mushi" />))).toContain('AM');
+  });
+
+  it('firstName for greetings skips honorifics and keeps the whole first word', () => {
+    expect(firstName('Fatuma Hassani Kombo')).toBe('Fatuma');
+    expect(firstName('Dkt. Amina Mushi')).toBe('Amina');
+    expect(firstName('  ')).toBe('');
   });
 });
 
