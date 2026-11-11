@@ -79,8 +79,12 @@ export function TipsCarousel({
   useFocusEffect(
     useCallback(() => {
       setFocused(true);
-      syncOffset();
-      return () => setFocused(false);
+      // After the screen is visible again (web hides inactive tabs, which resets scroll).
+      const timer = setTimeout(syncOffset, 60);
+      return () => {
+        clearTimeout(timer);
+        setFocused(false);
+      };
     }, [syncOffset]),
   );
   useEffect(() => {

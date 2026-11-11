@@ -121,6 +121,7 @@ own family.
 | `PhoneInput` | Tanzanian number: fixed `+255` prefix, 9 local digits shown "712 345 678", format hint; typed/pasted 0…/255…/+255… normalised (`src/lib/phone.ts`: `toE164`). |
 | `PasswordInput`, `PasswordStrength` | show/hide toggle; registration adds the server rules as a live checklist and a three-step meter **named in words**. |
 | `Checkbox` | consent rows: whole row toggles (≥ 48dp), 24dp box, announced error; related links go in `below` as real buttons. |
+| `ProgressBar` | thin bar for progress (profile completion), announced as a progressbar with its value; always next to a text label. |
 | `SelectField` | one choice from a long list (31 regions): Input-styled trigger + `BottomSheet` list. Short lists stay `ChipGroup`. |
 | `ListItem` | leading · title/subtitle · `meta` (pills, price; wraps) · trailing · chevron. ≥ 64dp tall. |
 | `Badge`, `AppointmentStatusPill`, `PaymentStatusPill` | icon + text; status is never shown by colour alone. Status→tone mapping is defined once (`APPOINTMENT_STATUS_STYLE`, `PAYMENT_STATUS_STYLE`). |
@@ -145,6 +146,10 @@ It must never cover a key action (chat Send, booking/payment buttons, the tab ba
 - **Bottom bars:** a screen with its own bar (sticky `Screen` footer via `onFooterLayout`, chat input + Send, call controls, onboarding controls) calls `useEmergencyFabLift(height)` (`src/ui/emergency-fab-lift.ts`). Lifts follow **focus**, not mount — tabs keep screens mounted.
 - **Overlays:** while a sheet or dialog is open (actions at the bottom/centre) the button moves to the top-right, still above the overlay and outside the subtree hidden from TalkBack. It hides only while its own emergency sheet is open and while the keyboard is open (typing — it would sit over the field), and returns as soon as the keyboard closes.
 
+### Health tips (src/features/tips)
+
+`TipCard` (art, category chip, title, one-line summary, "Soma zaidi"), `TipsCarousel` (auto-advances every 6 s; pauses on touch, when unfocused or backgrounded; never with "reduce motion"; "3/10" counter, never 100 dots), `TipBody` (the article format via `parseTipBody`), `TipArt` (bundled illustration or uploaded image in a fixed soft-teal frame). Content workflow: [health-tips.md](health-tips.md).
+
 ## Rules — do / don't
 
 **Do**
@@ -168,7 +173,7 @@ It must never cover a key action (chat Send, booking/payment buttons, the tab ba
 - Don't use solid red for anything but emergency (destructive = outlined).
 - Don't add animation libraries. Use subtle `Animated` with the native driver
   only, and respect "remove animations".
-- Don't use photos of people or stock imagery — except the four onboarding photos
+- Don't use photos of people or stock imagery — illustrations are unDraw (recoloured, see health-tips.md); the one exception is the four onboarding photos
   (supplied by the product owner; optimised by `pnpm --filter @daktari/mobile onboarding:images`,
   originals git-ignored in `assets/onboarding/source/`). Each has a description and a
   calm design-system placeholder if it fails to load.
